@@ -50,6 +50,44 @@ PolicyLossFn = Callable[
 POLICY_LOSS_REGISTRY: dict[str, PolicyLossFn] = {}
 
 
+class WelfordStatistics:
+    """
+    Welford's algorithm for computing mean and variance.
+
+    This class implements Welford's algorithm for computing mean and variance of a sequence of numbers.
+    It is used to compute the mean and variance of a sequence of rewards in the PPO algorithm.
+
+    Attributes:
+        mean (float): The mean of the sequence of numbers.
+        m2 (float): The second moment of the sequence of numbers.
+        count (int): The number of numbers in the sequence.
+    """
+
+    def __init__(self, mean: float = 0.0, m2: float = 0.0, count: int = 0):
+        self.mean = mean
+        self.m2 = m2
+        self.count = count
+
+    def update(self, new_value: float):
+        """
+        Update the mean and variance of the sequence of numbers.
+
+        Args:
+            value (float): The next number in the sequence.
+        """
+        self.count += 1
+        delta = new_value - self.mean
+        self.mean += delta / self.count
+        delta2 = new_value - self.mean
+        self.m2 += delta * delta2
+
+    @property
+    def variance(self) -> float:
+        if self.count < 2:
+            return 0.0
+        return self.m2 / self.count
+
+
 def register_policy_loss(name: str) -> Callable[[PolicyLossFn], PolicyLossFn]:
     """Register a policy loss function with the given name.
 
@@ -103,6 +141,7 @@ class AdvantageEstimator(str, Enum):
     OPO = "opo"
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
+    EBPO = "ebpo"
     RLOO_VECTORIZED = "rloo_vectorized"
     GRPO_VECTORIZED = "grpo_vectorized"
 
@@ -259,6 +298,114 @@ def compute_gae_advantage_return(
         advantages = verl_F.masked_whiten(advantages, response_mask)
     return advantages, returns
 
+
+@register_adv_est(AdvantageEstimator.EBPO)
+def compute_ebpo_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute advantage for EBPO, operating only on Outcome reward
+    (with only one scalar reward for each response).
+
+    Args:
+        token_level_rewards: `(torch.Tensor)`
+            shape is (bs, response_length)
+        response_mask: `(torch.Tensor)`
+            shape is (bs, response_length)
+        index: `(np.ndarray)`
+            index array for grouping
+        epsilon: `(float)`
+            small value to avoid division by zero
+        norm_adv_by_std_in_grpo: `(bool)`
+            whether to scale the GRPO advantage
+        config: `(Optional[AlgoConfig])`
+            algorithm configuration object
+
+    Note:
+        If norm_adv_by_std_in_grpo is True, the advantage is scaled by the std, as in the original GRPO.
+        If False, the advantage is not scaled, as in Dr.GRPO (https://arxiv.org/abs/2503.20783).
+
+    Returns:
+        advantages: `(torch.Tensor)`
+            shape is (bs, response_length)
+        Returns: `(torch.Tensor)`
+            shape is (bs, response_length)
+    """
+    scores = token_level_rewards.sum(dim=-1)
+
+    id2score = defaultdict(list)
+    id2mean = {}
+    id2std = {}
+
+    global_reward_stats = WelfordStatistics()
+    prompt_mean_reward_stats = WelfordStatistics()
+
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            id2score[index[i]].append(scores[i])
+
+        local_prompt_means = []
+        for idx in id2score:
+            scores_tensor = torch.stack(id2score[idx])
+            if len(scores_tensor) > 1:
+                id2mean[idx] = torch.mean(scores_tensor)
+                id2std[idx] = torch.std(scores_tensor)
+                local_prompt_means.append(id2mean[idx].item())
+            else:
+                id2mean[idx] = scores_tensor[0]
+                id2std[idx] = torch.tensor(0.0)
+                local_prompt_means.append(id2mean[idx].item())
+
+        for score in scores:
+            global_reward_stats.update(score.item())
+        for mean in local_prompt_means:
+            prompt_mean_reward_stats.update(mean)
+
+        global_mean = prompt_mean_reward_stats.mean
+        global_var_of_rewards = global_reward_stats.variance
+        global_var_of_prompt_means = prompt_mean_reward_stats.variance
+
+        id2baseline = {}
+        for idx in id2score:
+            local_mean = id2mean[idx]
+            k = len(id2score[idx])
+
+            # Calculate shrikage factor B_i
+            # B_i = (sigma^2/k)/(sigma^2/k + tau^2)
+            denominator = global_var_of_rewards / k + global_var_of_prompt_means
+            if denominator > epsilon:
+                shrinkage_factor = (global_var_of_rewards / k) / denominator
+            else:
+                shrinkage_factor = 1.0
+
+            ebpo_baseline = (
+                1 - shrinkage_factor
+            ) * local_mean + shrinkage_factor * global_mean
+            id2baseline[idx] = ebpo_baseline
+
+        advantages = torch.zeros_like(scores)
+        with torch.no_grad():
+            for i in range(bsz):
+                idx = index[i]
+                # Advantage = Score - EBPO_Baseline
+                advantages[i] = scores[i] - id2baseline[idx]
+
+            if norm_adv_by_std_in_grpo:
+                advantages = (advantages - advantages.mean()) / (
+                    advantages.std() + epsilon
+                )
+            else:
+                advantages = advantages - advantages.mean()
+
+            advantages = advantages.unsqueeze(-1) * response_mask
+
+        return advantages, advantages
 
 # NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
 @register_adv_est(AdvantageEstimator.GRPO)  # or simply: @register_adv_est("grpo")
