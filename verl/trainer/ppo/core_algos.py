@@ -142,6 +142,8 @@ class AdvantageEstimator(str, Enum):
     GRPO_PASSK = "grpo_passk"
     GPG = "gpg"
     EBPO = "ebpo"
+    SPO = "spo"
+    GRPO_BN = "grpo_bn"
     RLOO_VECTORIZED = "rloo_vectorized"
     GRPO_VECTORIZED = "grpo_vectorized"
 
@@ -407,6 +409,113 @@ def compute_ebpo_outcome_advantage(
 
         return advantages, advantages
 
+
+class SPOTracker:
+    """Persistent per-prompt value tracker using EMA-based Beta distribution parameters.
+
+    Each prompt maintains (alpha, beta) parameters for a Beta distribution.
+    On each update, prior counts are discounted by rho, then new observations are added.
+    """
+
+    def __init__(self, rho: float = 0.9, rho_min: float = 0.875):
+        self.rho = rho
+        self.n_0 = 1.0 / (1.0 - rho_min)  # initial effective sample size (8.0 for rho_min=0.875)
+        self.tracker: dict[str, tuple[float, float]] = {}  # prompt_id -> (alpha, beta)
+
+    def get_baseline(self, prompt_id: str) -> float:
+        """Return current baseline v_hat = alpha / (alpha + beta), or 0.5 if unseen."""
+        if prompt_id not in self.tracker:
+            return 0.5
+        alpha, beta = self.tracker[prompt_id]
+        return alpha / (alpha + beta)
+
+    def update(self, prompt_id: str, reward: float) -> None:
+        """Discount prior by rho, then add new observation.
+
+        Args:
+            prompt_id: unique identifier for the prompt
+            reward: scalar reward in [0, 1] range (or clamped)
+        """
+        reward = max(0.0, min(1.0, reward))  # clamp to [0, 1]
+        if prompt_id not in self.tracker:
+            alpha = self.n_0 / 2.0
+            beta = self.n_0 / 2.0
+        else:
+            alpha, beta = self.tracker[prompt_id]
+
+        # discount prior
+        alpha = self.rho * alpha + reward
+        beta = self.rho * beta + (1.0 - reward)
+        self.tracker[prompt_id] = (alpha, beta)
+
+    def reset(self) -> None:
+        """Clear all tracked state."""
+        self.tracker.clear()
+
+
+# Module-level singleton tracker
+_spo_tracker = SPOTracker(rho=0.9)
+
+
+@register_adv_est(AdvantageEstimator.SPO)
+def compute_spo_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute advantage for SPO (Single-stream Policy Optimization).
+
+    Uses a persistent per-prompt EMA-based value tracker as baseline instead of
+    per-group statistics (GRPO) or shrinkage estimation (EBPO).
+
+    Args:
+        token_level_rewards: `(torch.Tensor)` shape (bs, response_length)
+        response_mask: `(torch.Tensor)` shape (bs, response_length)
+        index: `(np.ndarray)` index array for grouping
+        epsilon: `(float)` small value to avoid division by zero
+        norm_adv_by_std_in_grpo: `(bool)` whether to scale advantage by std
+        config: `(Optional[AlgoConfig])` algorithm configuration
+
+    Returns:
+        advantages: `(torch.Tensor)` shape (bs, response_length)
+    """
+    scores = token_level_rewards.sum(dim=-1)
+
+    id2score = defaultdict(list)
+
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            id2score[index[i]].append(scores[i])
+
+        # Compute advantages using pre-update baselines
+        advantages = torch.zeros_like(scores)
+        for i in range(bsz):
+            idx = index[i]
+            baseline = _spo_tracker.get_baseline(str(idx))
+            advantages[i] = scores[i] - baseline
+
+        # Update tracker with per-prompt mean rewards
+        for idx in id2score:
+            scores_tensor = torch.stack(id2score[idx])
+            mean_reward = torch.mean(scores_tensor).item()
+            _spo_tracker.update(str(idx), mean_reward)
+
+        # Global batch normalization
+        if norm_adv_by_std_in_grpo:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + epsilon)
+        else:
+            advantages = advantages - advantages.mean()
+
+        advantages = advantages.unsqueeze(-1) * response_mask
+
+    return advantages, advantages
+
+
 # NOTE(sgm): this implementation only consider outcome supervision, where the reward is a scalar.
 @register_adv_est(AdvantageEstimator.GRPO)  # or simply: @register_adv_est("grpo")
 def compute_grpo_outcome_advantage(
@@ -473,6 +582,66 @@ def compute_grpo_outcome_advantage(
         scores = scores.unsqueeze(-1) * response_mask
 
     return scores, scores
+
+
+@register_adv_est(AdvantageEstimator.GRPO_BN)
+def compute_grpo_bn_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Compute advantage for GRPO with batch-level normalization (ablation variant).
+
+    Uses GRPO's per-group mean as baseline (same as standard GRPO), but applies
+    batch-level normalization instead of group-level normalization.
+
+    Args:
+        token_level_rewards: `(torch.Tensor)` shape (bs, response_length)
+        response_mask: `(torch.Tensor)` shape (bs, response_length)
+        index: `(np.ndarray)` index array for grouping
+        epsilon: `(float)` small value to avoid division by zero
+        norm_adv_by_std_in_grpo: `(bool)` whether to scale advantage by std
+        config: `(Optional[AlgoConfig])` algorithm configuration
+
+    Returns:
+        advantages: `(torch.Tensor)` shape (bs, response_length)
+    """
+    scores = token_level_rewards.sum(dim=-1)
+
+    id2score = defaultdict(list)
+    id2mean = {}
+
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            id2score[index[i]].append(scores[i])
+        for idx in id2score:
+            if len(id2score[idx]) == 1:
+                id2mean[idx] = id2score[idx][0]
+            elif len(id2score[idx]) > 1:
+                scores_tensor = torch.stack(id2score[idx])
+                id2mean[idx] = torch.mean(scores_tensor)
+            else:
+                raise ValueError(f"no score in prompt index: {idx}")
+
+        # Compute advantages using per-group mean baseline
+        advantages = torch.zeros_like(scores)
+        for i in range(bsz):
+            advantages[i] = scores[i] - id2mean[index[i]]
+
+        # Batch-level normalization (same as EBPO)
+        if norm_adv_by_std_in_grpo:
+            advantages = (advantages - advantages.mean()) / (advantages.std() + epsilon)
+        else:
+            advantages = advantages - advantages.mean()
+
+        advantages = advantages.unsqueeze(-1) * response_mask
+
+    return advantages, advantages
 
 
 @register_adv_est(AdvantageEstimator.GRPO_VECTORIZED)

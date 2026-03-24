@@ -33,6 +33,8 @@ def need_critic(config: DictConfig) -> bool:
         AdvantageEstimator.REINFORCE_PLUS_PLUS_BASELINE,
         AdvantageEstimator.EBPO,
         AdvantageEstimator.GPG,
+        AdvantageEstimator.SPO,
+        AdvantageEstimator.GRPO_BN,
     ]:
         return False
     else:
