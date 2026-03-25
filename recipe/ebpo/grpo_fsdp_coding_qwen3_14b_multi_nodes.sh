@@ -1,6 +1,7 @@
 #!/bin/bash
 
 #SBATCH --chdir=/fsx/zyhang/verl/
+#SBATCH --qos=h200_mrs_2_high
 #SBATCH --nodes 4
 #SBATCH --tasks-per-node 8
 #SBATCH --cpus-per-task 24
@@ -25,7 +26,7 @@ export NCCL_DEBUG=WARN
 project_name="ebpo"
 algorithm=grpo
 rollout_n=4
-k_max=8
+k_max=1
 loss_agg_mode="token-mean"
 experiment_name="ebpo_qwen3_14b_rl_grpo_coding_fsdp_multi_nodes"
 ROOT_DIR=/fsx/zyhang/verl

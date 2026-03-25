@@ -1,6 +1,7 @@
 #!/bin/bash
 
 #SBATCH --chdir=/fsx/zyhang/verl/
+#SBATCH --qos=h200_mrs_2_high
 #SBATCH --nodes 4
 #SBATCH --tasks-per-node 8
 #SBATCH --cpus-per-task 24
