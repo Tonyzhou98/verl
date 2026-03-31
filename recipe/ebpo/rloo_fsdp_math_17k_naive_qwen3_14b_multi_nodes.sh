@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task 24
 #SBATCH --gpus-per-node 8
 #SBATCH --mem 500G
-#SBATCH --time=48:00:00
+#SBATCH --time=96:00:00
 #SBATCH --job-name=ebpo_qwen3_14b_rl_rloo_fsdp
 #SBATCH --output=/fsx/zyhang/verl/slurm/ebpo_qwen3_14b_rl_rloo.stdout
 #SBATCH --error=/fsx/zyhang/verl/slurm/ebpo_qwen3_14b_rl_rloo.stderr
@@ -30,7 +30,7 @@ k_max=8
 loss_agg_mode="token-mean"
 experiment_name="ebpo_qwen3_14b_rl_rloo_fsdp_multi_nodes"
 ROOT_DIR=/fsx/zyhang/verl
-CHECKPOINT_PATH=/fsx/zyhang/checkpoints
+CHECKPOINT_PATH=/checkpoints/zyhang
 MODEL_PATH=/fsx/zyhang/Qwen/Qwen3-14B
 DATA_PATH=/fsx/zyhang/verl/recipe/ebpo
 
