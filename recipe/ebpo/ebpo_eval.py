@@ -366,8 +366,12 @@ def main():
 
         outputs = llm.generate(prompt_list, sampling_params)
         predictions = []
+        total_token_len = 0
         for gen in outputs:
             predictions.append(gen.outputs[0].text.strip())
+            total_token_len += len(gen.outputs[0].token_ids)
+
+        avg_token_len = total_token_len / len(outputs)
 
         # verify the predictions
         for pred, answer in zip(predictions, ground_truth):
@@ -382,7 +386,7 @@ def main():
             count += 1
 
         avg_acc: float = acc / count
-        print(f"iteration {i} accuracy: {avg_acc}")
+        print(f"iteration {i} accuracy: {avg_acc}, avg token length: {avg_token_len:.1f}")
         accuracy_list.append(avg_acc)
 
     print(

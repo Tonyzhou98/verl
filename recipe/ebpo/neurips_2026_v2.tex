@@ -1,0 +1,1414 @@
+\documentclass{article}
+
+% NeurIPS 2026 — anonymous double-blind submission
+\usepackage{neurips_2026}
+% \usepackage[main, final]{neurips_2026}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{hyperref}
+\usepackage{url}
+\usepackage{booktabs}
+\usepackage{amsfonts}
+\usepackage{nicefrac}
+\usepackage{microtype}
+\usepackage{xcolor}
+
+\usepackage{graphicx}
+\usepackage{tabularx}
+\usepackage{subcaption}
+
+\newcommand{\theHalgorithm}{\arabic{algorithm}}
+\newcommand{\yh}[1]{{\color{green}[yh: {#1}]}}
+\newcommand{\kh}[1]{{\color{blue}[kh: {#1}]}}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\usepackage{xspace}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage{wrapfig}
+\usepackage{enumitem}
+
+\usepackage[capitalize,noabbrev]{cleveref}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% THEOREMS
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\newcommand{\ours}{\textsc{EBPO}\xspace}
+\newcommand{\oursG}{\textsc{EBPO-G}\xspace}
+\newcommand{\oursBB}{\textsc{EBPO-BB}\xspace}
+
+\usepackage[textsize=tiny]{todonotes}
+
+\title{EBPO: Empirical Bayes Shrinkage for Stabilizing Group-Relative Policy Optimization}
+
+\author{%
+  Kevin Han\thanks{Equal contribution.} \\
+  Meta AI \\
+  \texttt{kevinwh@meta.com}
+  \And
+  Yuhang Zhou\footnotemark[1] \\
+  Meta AI \\
+  \texttt{zyhang@meta.com}
+  \And
+  Mingze Gao \\
+  Meta AI
+  \AND
+  Gedi Zhou \\
+  Meta AI
+  \And
+  Serena Li \\
+  Meta AI
+  \And
+  Abhishek Kumar \\
+  Meta AI
+  \AND
+  Xiangjun Fan \\
+  Meta AI
+  \And
+  Weiwei Li \\
+  Meta AI
+  \And
+  Lizhu Zhang \\
+  Meta AI
+}
+
+\begin{document}
+
+\maketitle
+
+\begin{abstract}
+Reinforcement Learning with Verifiable Rewards (RLVR) has proven effective for enhancing the reasoning capabilities of Large Language Models (LLMs). However, dominant approaches like Group Relative Policy Optimization (GRPO) face critical stability challenges: they suffer from high estimator variance under computational constraints (small group sizes) and vanishing gradient signals in saturated failure regimes where all responses yield identical zero rewards. To address this, we propose \textbf{Empirical Bayes Policy Optimization (EBPO)}, a framework that regularizes local group-based baselines by borrowing strength from the policy's accumulated global statistics. Instead of estimating baselines in isolation, EBPO employs a shrinkage estimator that dynamically balances local group statistics with a global prior updated via Welford's online algorithm. EBPO is \emph{prior-agnostic}: we instantiate it with a closed-form Gaussian prior and a more statistically natural Beta-Binomial prior, and show that both significantly outperform existing baselines while leaving the rest of the RL pipeline unchanged. Theoretically, EBPO guarantees strictly lower Mean Squared Error (MSE), bounded entropy decay, and non-vanishing penalty signals in failure scenarios compared to GRPO. Empirically, EBPO consistently outperforms across multiple math and coding benchmarks.
+\end{abstract}
+
+\section{Introduction}
+
+Post-training for Large Language Models (LLMs) has increasingly shifted toward reinforcing reasoning using verifiable signals. Reinforcement Learning with Verifiable Rewards (RLVR) has emerged as a stable and reproducible paradigm for tasks such as mathematical reasoning and code generation, where objective correctness can serve as a ground-truth reward signal \citep{shao2024deepseekmath, guo2025deepseek}. To avoid the computational overhead of training separate value networks, recent advancements have coalesced around group-based methods, most notably Group Relative Policy Optimization (GRPO) \citep{shao2024deepseekmath}. By normalizing rewards within a sampled group of outputs for a given prompt, GRPO provides a computationally efficient baseline that has demonstrated significant improvements in model reliability \citep{shao2024deepseekmath, yu2025dapo}.
+
+Despite its success, GRPO faces inherent limitations regarding the stability of its advantage estimator. Because the baseline is derived solely from the local group mean, it is susceptible to high variance when the group size ($G$) is small \citep{yu2025dapo}. Furthermore, GRPO lacks robustness in ``saturated'' regimes: if a model fails all attempts for a difficult prompt (all rewards are zero), the relative advantage vanishes, resulting in a null gradient and a wasted training step \citep{liu2025understanding}. While recent approaches like DAPO \citep{yu2025dapo} attempt to mitigate this volatility by filtering or reweighting unstable updates, they do so by effectively discarding the problematic examples, leading to unavoidable data waste. Consequently, standard GRPO often necessitates larger group sizes to suppress noise without losing data, drastically increasing the computational cost of training \citep{shao2024deepseekmath}.
+
+In this work, we introduce \textbf{Empirical Bayes Policy Optimization (EBPO)}, which reframes advantage estimation through the lens of Empirical Bayes (EB) inference \citep{robbins1992empirical}. Classical EB theory suggests that when estimating parameters for parallel tasks, one can reduce estimation error by assuming those parameters share a common underlying distribution \citep{robbins1992empirical}. Applying this to RLVR, we postulate that the latent success probability of a prompt is drawn from a global distribution characterized by the policy's historical performance.
+
+EBPO replaces the purely local GRPO baseline with a shrinkage estimator that pulls the noisy group mean toward a global mean, $\mu_{\text{glob}}$, with the degree of shrinkage determined dynamically by the ratio of within-group to between-group variance. This formulation allows EBPO to distinguish between failing a globally ``hard'' task (consistent with the prior) and failing an ``easy'' task (deviating from the prior), assigning adaptive penalty signals accordingly. To ensure scalability, we estimate global priors dynamically using Welford's online algorithm \citep{welford1962note}.
+
+Within the EBPO framework, only the inner posterior-mean computation depends on the assumed prior, while the core RL pipeline---group sampling, cluster-aware running statistics, and baseline shrinkage for gradient rescue---remains identical. We instantiate the framework with two natural prior choices: \oursG, which assumes a Gaussian prior over the latent success probability and yields a closed-form linear shrinkage estimator, and \oursBB, which uses the statistically natural Beta-Binomial conjugate model and fits hyperparameters via numerical optimization.
+
+We validate EBPO through both theoretical analysis and extensive empirical evaluation. Theoretically, we prove that the EBPO baseline achieves a strictly lower Mean Squared Error (MSE) than the standard sample mean used in GRPO and provides informative, non-zero gradients even when group rewards are saturated. Empirically, we evaluate EBPO on diverse math reasoning benchmarks such as AIME-2024 \citep{li2024numinamath}, OlympiadBench \citep{he2024olympiadbench} and on code-generation tasks. Across all settings, both instantiations outperforms GRPO and recently proposed baselines, with \oursBB performing marginally better on average and \oursG offering a faster, closed-form alternative. Furthermore, we demonstrate that EBPO is highly sample-efficient (outperforming GRPO by over 11\% in extremely resource-constrained settings $G=8$), while effectively leveraging curriculum learning via stratified sampling.
+
+Our contributions are summarized as follows:
+\begin{itemize}[leftmargin=*]
+    \item \textbf{Algorithmic Framework:} We propose EBPO, an Empirical Bayes shrinkage framework for stabilizing group-relative advantage estimation, and provide two instantiations: a Gaussian prior with a closed-form shrinkage weight, and a Beta-Binomial conjugate prior fit via numerical optimization.
+    \item \textbf{Theoretical Guarantees:} We prove that EBPO resolves the vanishing-gradient problem in saturated groups, strictly reduces baseline MSE, and bounds entropy decay relative to GRPO.
+    \item \textbf{State-of-the-Art Performance:} EBPO outperforms a comprehensive set of baselines on math reasoning, generalizes to code generation, with the largest gains in small-group, sparse-reward regimes where existing methods stall. 
+\end{itemize}
+
+\section{Methodology}
+\label{sec:method}
+
+\subsection{Preliminaries}
+
+\paragraph{Reinforcement Learning from Verifiable Rewards (RLVR).}
+RLVR provides a memory-efficient framework for optimizing reasoning policies $\pi_\theta$ in domains where the correctness of a response $o$ can be objectively determined by a verifier \citep{shao2024deepseekmath}. Unlike traditional actor-critic methods that require a learned value network, RLVR utilizes group-relative advantage estimation to provide a baseline for policy updates.
+
+For a given prompt $q$, the policy $\pi_\theta$ samples a group of $G$ independent trajectories $\{o_1, o_2, \dots, o_G\}$. Each trajectory is assigned a verified reward $r_i \in \{0, 1\}$ (or a shaped scalar reward) based on its correctness. The advantage $\hat{A}_i$ for each response is then computed by standardizing the reward within its group: $\hat{A}_i = \frac{r_i - \mu_{\text{group}}}{\sigma_{\text{group}} + \epsilon}$,
+where $\mu_{\text{group}}$ and $\sigma_{\text{group}}$ are the empirical mean and standard deviation of the rewards within the group:
+\begin{equation*}
+    \mu_{\text{group}} = \frac{1}{G} \sum_{j=1}^G r_j, \quad \sigma_{\text{group}} = \sqrt{\frac{1}{G-1} \sum_{j=1}^G (r_j - \mu_{\text{group}})^2}.
+\end{equation*}
+The policy parameters $\theta$ are updated by maximizing the clipped surrogate objective:
+\begin{equation}
+    \mathcal{J}_{\text{RLVR}}(\theta) = \mathbb{E}_{q \sim \mathcal{D}} \bigg[ \frac{1}{G} \sum_{i=1}^G \min \Big( \rho_i(\theta) \hat{A}_i, \text{clip}(\rho_i(\theta), 1-\epsilon_{\text{clip}}, 1+\epsilon_{\text{clip}}) \hat{A}_i \Big) \bigg]
+\end{equation}
+where $\rho_i(\theta) = \frac{\pi_\theta(o_i|q)}{\pi_{\theta_{\text{old}}}(o_i|q)}$ is the importance sampling ratio. While RLVR eliminates the computational cost of a critic model, the estimator $\mu_{\text{group}}$ suffers from high variance when $G$ is small. This instability often leads to noisy gradients, particularly in mathematical reasoning where the reward distribution is sparse.
+
+\paragraph{Empirical Bayes and Simultaneous Estimation.}
+In classical Bayesian inference, a prior distribution is specified before any data is observed. In Empirical Bayes (EB), the prior is instead estimated from the data itself \citep{robbins1992empirical}. Consider the general problem of simultaneously estimating a set of $M$ related parameters $\theta_1, \dots, \theta_M$ based on independent observations $y_1, \dots, y_M$, where each $y_m$ serves as a noisy estimate of $\theta_m$. Rather than estimating each parameter in isolation---which often yields high variance when data is sparse---EB assumes that the parameters are exchangeable and drawn from a common global prior. By estimating the global hyperparameters from the marginal distribution of the entire dataset, we can construct a posterior estimate for each individual $\theta_m$. This results in a shrinkage estimator, which ``pulls'' individual, noisy observations toward the global mean.
+
+\subsection{Empirical Bayes Policy Optimization (EBPO)}
+A primary challenge in post-training LLMs on reasoning tasks is the \textit{sparsity and high variance of rewards} \citep{uesato2022solving, zelikman2022star, lightman2023lets, shao2024deepseekmath, yu2025dapo}. In GRPO methods, the advantage is computed by normalizing rewards within a group of completions for a single prompt. However, when a prompt is excessively difficult, the model may fail all attempts (i.e., all rewards are zero), resulting in a null gradient. Conversely, for trivial prompts, the model might succeed in all attempts, again providing no relative signal for improvement.
+
+We propose \textbf{Empirical Bayes Policy Optimization (EBPO)}, which regularizes the local group-based baseline by ``borrowing strength'' from the global performance distribution of the policy. Concretely, we treat the latent success probability $\theta_q$ for each prompt $q$ as drawn from a global prior whose hyperparameters are estimated online from the policy's accumulated history. Following the EB paradigm, we do not fix these hyperparameters \emph{a priori} but estimate them dynamically across all prompts in the training history. This allows us to compute a shrinkage estimator that pulls the noisy local mean $\mu_{\text{group}}$ toward the global policy average (\Cref{fig:ebpo_overview}).
+
+\begin{figure*}[t]
+    \centering
+    \includegraphics[width=\textwidth]{figs/ebpo_illus.pdf}
+    \caption{\textbf{Overview of the EBPO Framework.} Unlike standard GRPO which relies solely on the local group mean, EBPO computes a ``smart baseline'' (shrinkage estimator) by blending the noisy local group mean with a stable global prior (updated via global history). This allows for informative advantage estimates even in small groups or saturated failure regimes. The choice of prior (Gaussian or Beta-Binomial) only affects the inner posterior-mean step; the surrounding pipeline is shared.}
+    \label{fig:ebpo_overview}
+\end{figure*}
+
+EBPO is a \emph{generic two-level hierarchical framework}; the only design choice is the form of the prior over $\theta_q$. We instantiate it with two natural choices: a Gaussian prior (\Cref{sec:ebpo-gaussian}) that yields a closed-form linear shrinkage estimator, and a Beta-Binomial prior (\Cref{sec:ebpo-beta}) that is more statistically natural for binary rewards.
+
+\subsubsection{EBPO with a Gaussian Prior (\oursG)}
+\label{sec:ebpo-gaussian}
+
+We assume that for any prompt $q$, the true latent success probability $\theta_q$ is drawn from a Gaussian global distribution: $\theta_q \sim \mathcal{N}(\mu_{\text{glob}}, \tau^2)$, where $\mu_{\text{glob}}$ represents the global average success rate of the policy and $\tau^2$ captures the variance in difficulty across different prompts. Although Beta-Binomial is the natural conjugate for Bernoulli rewards, the Gaussian relaxation yields a closed-form linear shrinkage estimator that avoids the iterative numerical hyperparameter optimization required by Beta priors, ensuring computational efficiency for online training.
+
+Let $\{q_1, \dots, q_M\}$ be a batch of prompts. For each prompt $q_m$, we sample $G$ responses and obtain rewards $r_{m,i}$, with local group mean $\bar{r}_m = \frac{1}{G} \sum_{i=1}^G r_{m,i}$. We model the relationship between local performance and global policy capability using two levels of variance:
+\begin{enumerate}
+   \item \textbf{Within-group variance ($\sigma^2$)}: the variance of individual rewards for a given prompt across all generations, estimated as $\sigma^2 = \text{Var}(r_{m,i})$.
+   \item \textbf{Between-group variance ($\tau^2$)}: the variance of the true latent success rates across different prompts, estimated as $\tau^2 = \text{Var}(\bar{r}_m)$ (see Remark~\ref{remark:between_group_var} for the conservative-shrinkage rationale).
+\end{enumerate}
+The Gaussian EBPO baseline $V_q^{\oursG}$ for a prompt $q$ is the posterior mean of the reward:
+\begin{equation}
+    V_q^{\oursG} = (1 - \mathcal{S}_q) \mu_{\text{group}} + \mathcal{S}_q \mu_{\text{glob}}, \qquad
+    \mathcal{S}_q = \frac{\sigma^2 / G}{\sigma^2 / G + \tau^2}.
+    \label{eq:ebpo-gaussian}
+\end{equation}
+To ensure training stability and scalability, we maintain running estimates of $\mu_{\text{glob}}, \sigma^2, \tau^2$ using \textbf{Welford's online algorithm} \citep{welford1962note}, avoiding the noise associated with small-batch statistics. The advantage for completion $(q_m, o_{m,i}, r_{m,i})$ is
+\begin{equation}
+    \hat{A}_{m,i} = \frac{(r_{m,i} - V_{q_m}^{\oursG}) - \mu_{\hat{A}}}{\sigma_{\hat{A}} + \epsilon},
+\end{equation}
+where $\mu_{\hat{A}}$ and $\sigma_{\hat{A}}$ are the batch-level mean and standard deviation of the raw advantages. The full algorithm is presented in \Cref{alg:EBPO} in Appendix.
+
+\iffalse
+\subsubsection{EBPO with a Beta-Binomial Prior (\oursBB)}
+\label{sec:ebpo-beta}
+
+For binary reward signals $r_{m,i}\in\{0,1\}$, the Beta-Binomial conjugate model is the statistically natural choice. We assume the latent success rate of each prompt is drawn from a Beta prior whose hyperparameters $(\alpha,\beta)$ are estimated online from the policy's history (per cluster, see \Cref{sec:clustering}):
+\begin{equation*}
+    \theta_q \sim \mathrm{Beta}(\alpha, \beta), \qquad k_{m,i}\mid\theta_{q_m}\sim\mathrm{Bernoulli}(\theta_{q_m}).
+\end{equation*}
+For a prompt $q_m$ with $s_m=\sum_i r_{m,i}$ successes out of $G$ samples, the conjugate posterior is $\mathrm{Beta}(\alpha+s_m,\,\beta+G-s_m)$, and the Beta-Binomial EBPO baseline is the posterior mean
+\begin{equation}
+    V_{q_m}^{\oursBB} = \frac{\alpha + s_m}{\alpha + \beta + G}
+                      = (1-\widetilde{\mathcal{S}}_{q_m})\,\bar r_m + \widetilde{\mathcal{S}}_{q_m}\,\frac{\alpha}{\alpha+\beta},
+                      \quad \widetilde{\mathcal{S}}_{q_m}=\frac{\alpha+\beta}{\alpha+\beta+G}.
+    \label{eq:ebpo-bb}
+\end{equation}
+
+Equation~\eqref{eq:ebpo-bb} highlights that, like the Gaussian variant, the Beta-Binomial baseline is a convex combination of the local group mean and a global anchor $\alpha/(\alpha+\beta)$. The hyperparameters $(\alpha_0,\beta_0)$ are fit per batch by method of moments on the empirical per-prompt pass rates ${\hat p_i = s_i/k_i}$ within the current group; full details and the corresponding pseudocode are in \Cref{sec:hyper_details} and \Cref{alg:EBPO_BB} in Appendix. Concentration $\alpha+\beta$ controls the shrinkage strength: as $\alpha+\beta \to 0$ the baseline trusts the local mean, and as $\alpha+\beta \to \infty$ it shrinks fully to the cluster mean.
+\fi
+
+\subsubsection{EBPO with a Beta-Binomial Prior (\oursBB)}
+\label{sec:ebpo-beta}
+
+For binary reward signals $r_{m,i}\in\{0,1\}$, the Beta-Binomial conjugate model is the statistically natural choice. We assume the latent success rate of each prompt is drawn from a Beta prior whose hyperparameters $(\alpha,\beta)$ are estimated online from the policy's accumulated history:
+\begin{equation*}
+    \theta_q \sim \mathrm{Beta}(\alpha, \beta), \qquad r_{m,i}\mid\theta_{q_m}\sim\mathrm{Bernoulli}(\theta_{q_m}).
+\end{equation*}
+For a prompt $q_m$ with $s_m=\sum_i r_{m,i}$ successes out of $G$ samples, the conjugate posterior is $\mathrm{Beta}(\alpha+s_m,\,\beta+G-s_m)$, and the Beta-Binomial EBPO baseline is the posterior mean
+\begin{equation}
+    V_{q_m}^{\oursBB} = \frac{\alpha + s_m}{\alpha + \beta + G}
+                      = (1-\widetilde{\mathcal{S}}_{q_m})\,\bar r_m + \widetilde{\mathcal{S}}_{q_m}\,\frac{\alpha}{\alpha+\beta},
+                      \quad \widetilde{\mathcal{S}}_{q_m}=\frac{\alpha+\beta}{\alpha+\beta+G}.
+    \label{eq:ebpo-bb}
+\end{equation}
+
+Equation~\eqref{eq:ebpo-bb} highlights that, like the Gaussian variant, the Beta-Binomial baseline is a convex combination of the local group mean and a global historical anchor $\alpha/(\alpha+\beta)$. The hyperparameters $(\alpha,\beta)$ are fit by method of moments from lagged running statistics over the policy's historical per-prompt pass rates; full details and the corresponding pseudocode are in \Cref{sec:hyper_details} and \Cref{alg:EBPO_BB} in Appendix. Concentration $\alpha+\beta$ controls the shrinkage strength: as $\alpha+\beta \to 0$ the baseline trusts the local mean, and as $\alpha+\beta \to \infty$ it shrinks fully to the accumulated global historical mean.
+
+\paragraph{Why we ship Gaussian as the default.} We note that implementing a Beta-Binomial EBPO leaves our core RL pipeline completely unchanged. The Gaussian assumption yields a fast, clean closed-form linear shrinkage weight $\mathcal{S}$, while the Beta-Binomial assumption requires iterative numerical optimization to fit $(\alpha,\beta)$ because the marginal likelihood is intractable. Empirically (\Cref{sec:results}), \oursBB performs only marginally better than \oursG and both significantly outperform all baselines, so we recommend \oursG as the practical default. The Gaussian model also extends seamlessly to non-binary, shaped scalar rewards. 
+
+\subsection{Theoretical Analysis of EBPO}
+
+In this section, we analyze the theoretical properties of the EBPO estimator and demonstrate its advantages over the standard GRPO baseline. The arguments below are stated for the Gaussian variant; analogous statements hold for the Beta-Binomial variant because both are shrinkage estimators of the same convex-combination form. Proofs are deferred to \Cref{sec:proof_details} in Appendix.
+
+\subsubsection{Definitions and Setup}
+Let $q$ be a prompt and $\{o_1, \dots, o_G\}$ be a group of $G$ responses generated by policy $\pi_\theta$, with $r_i \in \{0,1\}$. Let $V^{\text{GRPO}} = \mu_{\text{group}}$ and $V^{\text{EBPO}} = (1-\mathcal{S})\mu_{\text{group}} + \mathcal{S}\mu_{\text{glob}}$ with $\mathcal{S}\in(0,1]$ and $\mu_{\text{glob}}>0$. The raw advantages are $\hat{A}^{raw}_{\text{GRPO}}(o_i)=r_i-V^{\text{GRPO}}$ and $\hat{A}^{raw}_{\text{EBPO}}(o_i)=r_i-V^{\text{EBPO}}$.
+
+\subsubsection{Theoretical Properties of EBPO}
+
+\begin{theorem}[Non-Vanishing Gradients in Saturation Regimes]
+\label{thm:non_vanishing}
+Consider a \textbf{saturated failure group} where the policy fails on all sampled responses for a specific prompt $q$, i.e., $r_i = 0$ for all $i$. Under these conditions, the GRPO gradient contribution is zero (vanishes), while the EBPO gradient contribution is non-zero (informative), provided $\mu_{\text{glob}} > 0$ and $\sigma_{\hat{A}} > 0$.
+\end{theorem}
+
+\begin{theorem}[Stability via MSE Reduction]
+\label{thm:mse_stability}
+Assume the true latent success rate for prompt $q$ is $\theta_q$, and the observed group mean $\mu_{\text{group}}$ is an unbiased estimator of $\theta_q$ with variance $\sigma^2/G$. Under the Gaussian approximation $\theta_q \sim \mathcal{N}(\mu_{\text{glob}}, \tau^2)$, $V^{\text{EBPO}}$ achieves strictly lower Mean Squared Error (MSE) than $V^{\text{GRPO}}$ for estimating $\theta_q$.
+\end{theorem}
+\begin{remark}
+EBPO introduces a bias toward the global prior $\mu_{\text{glob}}$ to minimize MSE---a standard trade-off in shrinkage estimation. The global statistics are updated online using the current batch (\Cref{alg:EBPO}); the bias from this correlation decays as $O(1/T)$ in the number of accumulated steps, so for large $T$ the global statistics act as fixed priors relative to local-group updates, keeping the policy gradient asymptotically consistent.
+\end{remark}
+\begin{corollary}[Global Context Sensitivity]
+\label{thm:global_context}
+The penalty assigned by EBPO for a failure ($r_i=0$) in a saturated group scales dynamically with the global task difficulty $\mu_{\text{glob}}$: failures on globally ``easy'' tasks (high $\mu_{\text{glob}}$) incur larger penalties than failures on globally ``hard'' tasks (low $\mu_{\text{glob}}$); see \Cref{fig:penalty_scaling}.
+\end{corollary}
+
+\begin{wrapfigure}{r}{0.5\textwidth}
+\vspace{-0.1in}
+    \centering
+    \includegraphics[width=\linewidth]{figs/sensitivity.png}
+    \vspace{-0.25in}
+    \caption{\textbf{Advantage signal in failure scenarios ($r_i=0$ for all $i$).}
+    GRPO yields a vanishing gradient regardless of task difficulty, while EBPO provides a dynamic penalty signal $-\mathcal{S}\mu_{\text{glob}}$ that scales with the global success rate.}
+    \label{fig:penalty_scaling}
+\end{wrapfigure}
+
+We next analyze the exploration dynamics. Recent work by \citet{cui2025entropy} establishes that entropy collapse in reasoning models is driven by the covariance between policy likelihood and advantage. We posit that EBPO implicitly regularizes this decay; our derivation below relies on the same approximation framework.
+
+\begin{proposition}[Entropy Conservation via Shrinkage-Regularized Covariance]
+\label{prop:entropy_conservation}
+Let $\Delta H(\pi)=H(\pi_t)-H(\pi_{t+1})$ denote the reduction in policy entropy after a single gradient step with learning rate $\eta$. Under the assumption that the magnitude of the likelihood-reward covariance $\Omega_q$ is independent of the local group scale $\sigma_q$, the entropy reduction of EBPO is strictly bounded by that of GRPO:
+$\mathbb{E}[\Delta H_{\text{EBPO}}] < \mathbb{E}[\Delta H_{\text{GRPO}}]$,
+provided the task distribution exhibits non-zero between-group variance.
+\end{proposition}
+\begin{remark}
+While the independence assumption may not strictly hold in all regimes, it captures the dominant dynamics of entropy decay; we empirically validate the claim in \Cref{sec:results} (\Cref{fig:entropy_curve}).
+\end{remark}
+
+\subsubsection{Optimizing Prior Estimation via Clustered Sampling}
+\label{sec:clustering}
+
+While EBPO stabilizes the baseline by leveraging global history, a potential limitation arises from the heterogeneity of training data. Under random shuffling, the online estimator for $\mu_{\text{glob}}$ aggregates performance across vastly different domains (e.g., simple arithmetic mixed with complex calculus) or different difficulties (e.g., IMO problems mixed with AMC 8 problems). This high variance in the data stream can cause the global prior to converge to a coarse average that creates a ``mismatch'' for specific tasks.
+
+To address this, we organize the training stream into coherent clusters and explore two strategies:
+\begin{enumerate}
+    \item \textbf{Topic Clustering:} grouping prompts by mathematical domain (e.g., Algebra, Geometry).
+    \item \textbf{Difficulty Clustering (Curriculum):} ordering prompts by base-model success rate from easy to hard.
+\end{enumerate}
+By presenting data in clustered sequences, the online estimator adapts to consistent local distributions rather than oscillating between extremes.
+
+% \paragraph{Topic clustering is cheap.}
+% A natural concern is that producing topic labels requires an expensive teacher model (e.g., GPT-4.1). We emphasize that clustering is \emph{not} the load-bearing component of EBPO---it is a way of stratifying the running prior, and any reasonable partition of the prompt distribution is sufficient. In \Cref{sec:clustering_robustness} we replace the GPT-4.1 annotation pipeline with a lightweight \textsc{BERTopic} pipeline (all-MiniLM-L6-v2 embeddings clustered by K-Means with $K=10$) and observe nearly identical performance on math benchmarks. For the code-generation experiments (\Cref{sec:code}) we go even cheaper and cluster prompts by their original data source. The empirical robustness across these very different clustering procedures supports our claim that EBPO's gains stem from the EB shrinkage mechanism rather than from any specific labeling pipeline.
+
+\begin{proposition}[Advantage of Clustered Sampling]
+\label{prop:clustering}
+Let the dataset $\mathcal{D}$ be partitioned into $K$ distinct clusters $\{\mathcal{C}_1, \dots, \mathcal{C}_K\}$ with cluster-conditional means $\mu_k = \mathbb{E}[\theta_q | q \in \mathcal{C}_k]$ and global mean $\mu_{\text{glob}}=\mathbb{E}_k[\mu_k]$. Let $\hat{\mu}_{\text{prior}}$ denote the global statistic used by EBPO. We define two streaming regimes:
+\begin{itemize}
+    \item \textbf{Random Shuffle:} The stream is sampled uniformly from $\mathcal{D}$, such that $\hat{\mu}_{\text{prior}} \!\to\! \mu_{\text{glob}}$.
+    \item \textbf{Topic-Coherent:} The stream is ordered by cluster. For a prompt $q \in \mathcal{C}_k$, the estimator has adapted such that $\hat{\mu}_{\text{prior}} = \mu_k$.
+\end{itemize}
+The MSE of the prior estimate w.r.t the true difficulty $\theta_q$ is strictly minimized in the Topic-Coherent regime.
+% Under the random-shuffle regime $\hat{\mu}_{\text{prior}}\!\to\!\mu_{\text{glob}}$, while in the topic-coherent regime $\hat{\mu}_{\text{prior}}\!\to\!\mu_k$ for $q\in\mathcal{C}_k$. The MSE of the prior estimate w.r.t.\ the true difficulty $\theta_q$ is strictly minimized in the topic-coherent regime.
+\end{proposition}
+
+\section{Experiments}
+\label{sec:experiments}
+
+We first outline the experimental setup. Then, we compare the proposed \ours method with GRPO and its variants under different experimental settings.
+
+\subsection{Experimental Setup}
+\label{sec:setup}
+
+\paragraph{Datasets.}
+For math reasoning, we use the DAPO-Math-17K dataset \citep{yu2025dapo} as the training corpus and evaluate on AIME-2024 \citep{li2024numinamath}, AIME-2025, AMC23 \citep{li2024numinamath}, MATH-500 \citep{hendrycks2021measuring}, and OlympiadBench \citep{he2024olympiadbench}. For code generation, we train on the PRIME-RL \citep{cui2025process} dataset (APPS, CodeContests, TACO, Codeforces) and evaluate on 100 sampled validation instances per category. For evaluation, each model is assessed using the Pass@1 metric, averaged across 16 independent trials with different random seeds to ensure statistical robustness.
+
+\paragraph{Models.}
+We adopt three LLMs spanning families and scales: \textbf{LLaMA3.1-8B} \citep{dubey2024llama}, \textbf{Qwen3-8B}, and \textbf{Qwen3-14B} \citep{yang2025qwen3}.
+
+\paragraph{Baselines.}
+We compare EBPO with a comprehensive set of baselines: GRPO \citep{shao2024deepseekmath}, DAPO \citep{yu2025dapo}, Dr.\,GRPO \citep{liu2025understanding}, EntropyMech \citep{cui2025entropy}, REINFORCE++, RLOO \citep{hu2025reinforce++}, and Single-stream Policy Optimization \citep{xu2025single}. All methods are trained under identical conditions: same training data ordering and optimization configuration. Hyperparameter details are in \Cref{sec:hyper_details} in Appendix.
+
+\paragraph{Clustered sampling details.}
+We evaluate two sampling strategies: \emph{clustering by topic} (\oursG-topic, \oursBB-topic) and \emph{clustering by difficulty} (\oursG-diff). For difficulty, we use the base model's pass rate as the difficulty metric, grouping problems with similar success rates. For topic, our default annotation uses GPT-4.1-mini \citep{achiam2023gpt}; in \Cref{sec:clustering_robustness} we additionally evaluate a low-cost BERTopic pipeline \citep{grootendorst2022bertopic}. For code generation, we cluster prompts by their original data source.
+
+\subsection{Main Results}
+\label{sec:results}
+
+\begin{table*}[t]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lccccc|c}
+\toprule
+\textbf{Method} & \textbf{MATH-500} & \textbf{AIME-2024} & \textbf{AIME-2025} & \textbf{AMC23} & \textbf{OlympiadBench} & \textbf{Average} \\
+\midrule
+\multicolumn{7}{l}{\textbf{Qwen3-8B}} \\
+\midrule
+GRPO            & 65.60 & 50.21 & 42.29 & \textbf{89.53} & 45.99 & 58.72 \\
+Dr.\,GRPO       & 67.68 & 51.04 & 32.71 & 85.00 & 44.91 & 56.27 \\
+DAPO            & 58.39 & 45.63 & 32.71 & 82.81 & 43.62 & 52.63 \\
+EntropyMech     & 53.88 & 37.92 & 30.42 & 79.99 & 43.69 & 49.18 \\
+REINFORCE++   & 70.07          & \underline{62.71} & \underline{48.13}          & 85.63          & 49.11          & 63.13 \\
+RLOO          & \underline{76.36} & 54.16          & 44.58          & 85.47          & 50.45          & 62.20 \\
+SPO           & 75.66          & 52.88          & 43.13          & 85.72          & \underline{54.45}          & 62.37 \\
+\oursG-topic    & \textbf{76.80} & 56.04 & 47.92 & 86.25 & \textbf{54.93} & \underline{64.39} \\
+\oursBB-topic   & 70.42 & \textbf{67.70} & \textbf{53.54} & \underline{87.66} & 49.15 & \textbf{65.69} \\
+\midrule
+\multicolumn{7}{l}{\textbf{Qwen3-14B}} \\
+\midrule
+GRPO            & \textbf{75.73} & 49.99 & 37.92 & \underline{85.47} & 50.77 & 59.98 \\
+Dr.\,GRPO       & 73.63 & 53.33 & 39.79 & 82.97 & \textbf{51.08} & 60.16 \\
+DAPO            & 67.68 & 57.29 & \textbf{51.46} & 84.22 & 46.03 & 61.34 \\
+EntropyMech     & 59.94 & 49.37 & 40.83 & 78.75 & 41.21 & 54.42 \\
+REINFORCE++   & 66.18          & 56.45          & 36.67          & 79.22          & 45.62          & 56.83 \\
+RLOO          & 67.43          & 55.91          & 45.41          & 85.31 & 45.74          & 59.96 \\
+SPO           & 63.48          & 57.50          & 45.00          & 77.81          & 46.92          & 58.14 \\
+\oursG-topic    & 71.01 & \textbf{58.13} & 45.63 & \textbf{85.47} & 48.52 & \underline{61.75} \\
+\oursBB-topic   & \underline{73.69} & \underline{57.50} & \underline{47.50} & 82.66 & \underline{50.89} & \textbf{62.45} \\
+% \midrule
+% \multicolumn{7}{l}{\textbf{LLaMA3-8B}} \\
+% \midrule
+% \oursG-topic    & \textbf{23.84} & 2.29 & 0.21 & \textbf{15.78} & \textbf{7.75} & \textbf{9.97} \\
+% GRPO            & 22.66 & 2.71 & 0.00 & 12.66 & 6.97 & 9.00 \\
+% Dr.\,GRPO       & 22.12 & \textbf{2.91} & \textbf{0.42} & 12.36 & 6.65 & 8.89 \\
+% DAPO            & 18.05 & 2.29 & 0.00 & 11.09 & 6.05 & 7.90 \\
+% EntropyMech     & 15.01 & 1.25 & 0.21 & 10.16 & 5.30 & 6.79 \\
+\bottomrule
+\end{tabular}
+}
+\caption{
+Performance comparison of EBPO and baselines across math reasoning benchmarks (group size $G=4$). Both EBPO instantiations (Gaussian and Beta-Binomial) outperform all baselines on average. \oursBB is marginally stronger on average, while \oursG remains the recommended default for its closed-form efficiency. Each value represents Pass@1 (\%). The best results are in bold, and the second-best results are underlined. Llama-3 results are reported in Table \ref{tab:ebpo_results_llama} in Appendix.
+}
+\label{tab:ebpo_results}
+\end{table*}
+
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lccccc}
+\toprule
+\textbf{Method} & \textbf{APPS} & \textbf{CodeContests} & \textbf{TACO} & \textbf{Codeforces} & \textbf{Avg.} \\
+\midrule
+GRPO         & 62.54 & 61.74 & 57.54 & 37.15 & 54.74 \\
+Dr.\,GRPO    & 69.87 & 65.88 & \textbf{71.74} & 40.87 & 62.09 \\
+DAPO         & 70.03 & 65.33 & 71.09 & 41.59 & 62.01 \\
+\oursG-topic & \textbf{70.94} & \textbf{66.37} & 70.40 & \textbf{42.97} & \textbf{62.67} \\
+\bottomrule
+\end{tabular}
+\caption{Code-generation results on PRIME-RL (Qwen3-8B). \oursG-topic with simple source-based clustering outperforms all baselines on average and on three of four benchmarks.}
+\label{tab:code_results}
+\end{table}
+
+\paragraph{Both \oursG and \oursBB outperform the GRPO family.}
+Results across both math and coding domains demonstrate that \oursG consistently outperforms the GRPO-family baselines. In math evaluations (\Cref{tab:ebpo_results}), both \oursG and \oursBB are highly competitive; on Qwen3-8B, \oursBB achieves the highest average Pass@1 (\textbf{65.69\%}), while \oursG remains close behind (\textbf{64.39\%}), significantly outpacing the strongest GRPO baseline, REINFORCE++ (\textbf{63.13\%}). This lead is maintained in the coding domain (\Cref{tab:code_results}), where \oursG achieves a \textbf{62.67\% average} compared to 54.74\% for standard GRPO (+7.93\%), surpassing both Dr.\,GRPO and DAPO. 
+
+The performance gains are most pronounced on benchmarks with particularly sparse rewards, such as OlympiadBench and AIME, precisely the regime where the shrinkage estimator's gradient-rescue mechanism is most critical. These findings validate that \ours serves as a generic stabilizer for sparse-reward RLVR rather than a math-specific trick. Furthermore, the minimal performance gap (within $\sim$1\%) between the Gaussian and Beta-Binomial variants across scales supports our claim that the EB shrinkage mechanism, rather than the specific prior form, is the load-bearing ingredient. Consequently, we recommend \oursG as the practical default for its closed-form efficiency, and \oursBB when a fully conjugate posterior is desired.
+
+% \paragraph{Comparison against more recent baselines and a batch-normalization ablation.}
+% For brevity the main table lists the GRPO-family baselines used in the original ICML submission. To verify that EBPO continues to lead against more recent value-free RL methods, we additionally compare against REINFORCE++, RLOO, and SPO (\Cref{tab:newbaselines_results}); EBPO retains the top average Pass@1 on both Qwen3-8B and Qwen3-14B. We also isolate the contribution of the batch-level advantage normalization that EBPO performs alongside its shrinkage step (\Cref{tab:bn_ablation}): a controlled GRPO + batch-normalization (GRPO+BN) variant gives only marginal gains over vanilla GRPO and trails EBPO by 5--7 points on average, confirming that BN can rescale gradients but cannot resolve the vanishing-gradient pathology in saturated groups---the failure mode EBPO addresses by borrowing strength from the global prior.
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[t]{0.45\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figs/icml_grad_norm.pdf}
+        \caption{Evolution of Gradient Norm ($||\nabla_\theta J||_2$).}
+        \label{fig:grad_norm}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.45\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figs/icml_kl_stability.pdf}
+        \caption{Evolution of Per-Step KL ($\text{KL}(\pi_t || \pi_{t+1})$).}
+        \label{fig:per_step_kl}
+    \end{subfigure}
+    \caption{
+    \textbf{Optimization stability analysis.} \textbf{(a)} \oursG-topic maintains healthy, non-vanishing gradients compared to GRPO's diminishing signals. \textbf{(b)} \oursG-topic prevents policy collapse by strictly bounding per-step KL throughout training.
+    }
+    \label{fig:train_dynamics}
+\end{figure*}
+
+\paragraph{EBPO achieves stable and non-vanishing policy optimization.}
+We examine the magnitude of policy updates and gradient flow on Qwen3-8B in \Cref{fig:train_dynamics}. Standard GRPO exhibits consistently lower gradient magnitudes, indicative of \textbf{vanishing gradients} in saturated regimes. In contrast, EBPO maintains a robust gradient flow throughout training, confirming that the shrinkage-regularized baseline provides informative penalty signals even when local variance is zero. Per-step KL ($\text{KL}(\pi_t \| \pi_{t+1})$, \Cref{fig:per_step_kl}) shows that GRPO destabilizes in later training while EBPO maintains a strictly bounded update magnitude. EBPO thus strikes a critical balance: it prevents stalling due to vanishing signals while regularizing against the catastrophic large-step deviations that lead to model collapse.
+
+\begin{figure*}[t]
+    \centering
+    \begin{subfigure}[t]{0.45\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figs/icml_acc_maj_16.pdf}
+        \label{fig:maj_vote}
+    \end{subfigure}
+    \hfill
+    \begin{subfigure}[t]{0.45\textwidth}
+        \centering
+        \includegraphics[width=\textwidth]{figs/icml_acc_best_16.pdf}
+        \label{fig:pass_16}
+    \end{subfigure}
+    \vspace{-1em}
+    \caption{
+    \textbf{Validation Performance.} While GRPO plateaus or degrades in late-stage training---indicative of overfitting or policy collapse---\ours exhibits sustained performance gains.
+    }
+    \label{fig:val_performance}
+\end{figure*}
+
+\paragraph{\ours demonstrates stronger exploration behavior compared to GRPO.}
+We verify the entropy claim of Proposition~\ref{prop:entropy_conservation} by tracking policy entropy in \Cref{fig:entropy_curve} in Appendix. \ours maintains higher entropy throughout training, encouraging exploration and preventing premature collapse. As shown in \Cref{fig:val_performance}, this preservation translates directly into a continuous upward trajectory of Majority-Vote@16 and Pass@16 validation reward, while GRPO plateaus due to mode collapse.
+
+\section{Sensitivity Analysis and Ablation Studies}
+
+\subsection{Robustness to Clustering Method}
+\label{sec:clustering_robustness}
+
+A reasonable concern regarding \ours-topic is whether the cost of topic labeling---originally performed via a GPT-4.1-mini pipeline---might outweigh the performance gains. To address this, we replaced the GPT annotations with a lightweight BERTopic pipeline. We observe that this BERTopic variant performs on par with the GPT variant (Qwen3-8B: 64.93\% vs.\ 64.39\%; Qwen3-14B: 61.12\% vs.\ 61.75\%), with details in Table~\ref{tab:bertopic_full} in Appendix. Since both variants significantly exceed standard GRPO, these results confirm that EBPO's efficacy stems from the underlying Empirical Bayes shrinkage estimator rather than a specific high-cost annotation source. Consequently, practitioners can implement EBPO using any standard clustering algorithm to achieve similar stability and performance. Furthermore, we also conduct ablation studies in Appendix~\ref{appendix:ablation} to investigate the impact of clustering and batch normalization on the efficacy of the \ours framework.
+
+
+
+% \subsection{Generalization to Code Generation}
+% \label{sec:code}
+
+% To assess whether EBPO's gains generalize beyond mathematical reasoning, we evaluate on the PRIME-RL coding suite (\textsc{Eurus-2-RL-Data}: APPS, CodeContests, TACO, Codeforces) following the protocol of \citet{cui2025entropy}-style code RLVR. We sample 100 validation examples per category, train for one epoch on Qwen3-8B, and compare \oursG-topic against GRPO, Dr.\,GRPO, and DAPO. To minimize annotation cost, we use \emph{source-based} clusters here: each prompt is tagged with its originating dataset (APPS / CodeContests / TACO / Codeforces) and the EB prior is maintained per source.
+
+% \Cref{tab:code_results} shows that EBPO retains its lead in this very different domain: \oursG-topic achieves a \textbf{62.67\% average} versus 54.74\% for GRPO (+7.93pp) and outperforms both Dr.\,GRPO and DAPO. The gain is largest on TACO and APPS, where rewards are particularly sparse---exactly the regime where the shrinkage estimator's gradient-rescue mechanism matters most. This demonstrates that EBPO is a generic stabilizer for sparse-reward RLVR, not a math-specific trick.
+
+\subsection{Sensitivity to Group Size}
+\label{sec:group_size}
+
+\begin{table}[t]
+\centering
+\begin{tabular}{lccccccc}
+\toprule
+\textbf{Method} & $G$ & \textbf{MATH} & \textbf{AIME24} & \textbf{AIME25} & \textbf{AMC23} & \textbf{Olympiad} & \textbf{Avg.} \\
+\midrule
+\oursG-topic & 8  & \textbf{74.26} & \textbf{64.37} & \textbf{48.96} & \textbf{89.69} & \textbf{50.44} & \textbf{65.54} \\
+GRPO         & 8  & 68.79 & 47.29 & 31.46 & 79.69 & 44.06 & 54.26 \\
+DAPO         & 8  & 56.63 & 35.42 & 28.33 & 77.34 & 35.75 & 46.69 \\
+\midrule
+\oursG-topic & 16 & 77.39 & \textbf{60.00} & \textbf{46.46} & \textbf{85.94} & \textbf{53.41} & \textbf{64.64} \\
+GRPO         & 16 & \textbf{77.98} & 55.42 & 44.58 & 85.94 & 51.89 & 63.16 \\
+DAPO         & 16 & 73.26 & 46.67 & 37.92 & 76.87 & 47.07 & 56.36 \\
+\midrule
+\oursG-topic & 32 & 72.24 & \textbf{61.04} & \textbf{44.79} & 85.47 & 48.52 & 62.41 \\
+GRPO         & 32 & \textbf{76.94} & 59.37 & 40.00 & \textbf{86.88} & \textbf{51.34} & \textbf{62.91} \\
+DAPO         & 32 & 72.71 & 46.67 & 35.21 & 83.13 & 46.77 & 56.90 \\
+\bottomrule
+\end{tabular}
+\caption{Performance comparison across different group sizes (Qwen3-8B). EBPO consistently demonstrates superior sample efficiency, with the largest relative gains in the small-$G$ regime.}
+\label{tab:group_size_results}
+\end{table}
+
+\paragraph{EBPO is dramatically more sample-efficient at small group size.}
+The performance of group-based RL methods is fundamentally tied to $G$, which governs the fidelity of the advantage signal. We compare EBPO, GRPO, and DAPO across $G\in\{8,16,32\}$ on Qwen3-8B (\Cref{tab:group_size_results}). At $G=8$, \oursG-topic outperforms GRPO by 11.28\% on average---topic-clustered evidence aggregation effectively densifies the sparse reward landscape that small groups produce. As $G$ grows, the GRPO baseline's empirical statistics become more reliable and the gap shrinks; EBPO's main wins are realized exactly where computational budgets are tightest.
+
+\subsection{Curriculum Learning with Difficulty Clustering}
+
+\begin{figure}[t]
+    \centering
+    \includegraphics[width=0.8\linewidth]{figs/curriculum_results_filtered_bold.pdf}
+    \caption{Performance comparison under difficulty-based curriculum learning.}
+    \label{fig:curriculum_results}
+\end{figure}
+
+\textbf{Curriculum learning provides a more stable training signal for EBPO, consistently outperforming GRPO.}
+We train each model for one epoch on a difficulty-ordered (easy-to-hard) re-ranking with $G=4$ (\oursG-diff and GRPO-diff). This structured exposure aligns the complexity of evidence clusters with the model's evolving capability. \Cref{fig:curriculum_results} shows a clear advantage on high-difficulty benchmarks: for Qwen3-8B, \oursG-diff outperforms GRPO-diff by 3.95\% on AIME-24 and 6.04\% on AIME-25; a consistent lead is also observed on Qwen3-14B for AIME and OlympiadBench. While standard group-based normalization suffices for conventional tasks like MATH-500 and AMC23, grounding advantage estimation in stabilized evidence clusters is significantly more effective for the sparse reward landscapes of elite-level competition.
+
+\section{Conclusion}
+In this paper, we presented \ours, a framework that enhances policy optimization by utilizing an Empirical Bayes approach to estimate reward mean and variance across clustered logical evidence. By replacing standard group-wide normalization with evidence-grounded statistics, \ours significantly improves sample efficiency. Furthermore, our difficulty-based curriculum stabilizes the estimation of these empirical priors, leading to substantial performance gains on reasoning benchmarks. Ultimately, \ours demonstrates that grounding reinforcement learning in shared semantic rationales provides a theoretically robust and computationally efficient path to elite-level mathematical reasoning.
+
+\bibliography{example_paper}
+\bibliographystyle{icml2026}
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\appendix
+
+\section*{Appendix}
+
+\input{sections/2_related}
+
+\section{Hyperparameter Details}
+\label{sec:hyper_details}
+We implement the EBPO framework and all baselines using the \texttt{verl} package. For optimization, we utilize a mini-batch size of 128 per backpropagation step, yielding a total global batch size of 512. The learning rate is fixed at $1\times10^{-6}$, with a KL-divergence coefficient ($\beta$) set to $0.001$. For DAPO, REINFORCE++, RLOO, and SPO, we adopt the hyperparameters from their original works.
+
+To evaluate the impact of difficulty-based curriculum learning, we train for a single epoch without data shuffling to maintain the easy-to-hard ordering, utilizing the final checkpoint for performance assessment. For topic-level clustering experiments, training is conducted for up to 1{,}000 steps. In this setting, we select the optimal checkpoint based on the highest performance on a held-out validation set, evaluated using majority vote over 16 rollouts. All baseline comparisons use identical hyperparameter configurations.
+
+To quantify task difficulty relative to the base model, we perform sixteen independent rollouts per prompt at $T=1.0$. The difficulty metric is the empirical pass rate.
+
+\paragraph{GPT-4.1-mini topic annotation.}
+We establish nine fixed domains within the math dataset: \emph{Algebra \& Number Theory}, \emph{Calculus \& Analysis}, \emph{Geometry \& Trigonometry}, \emph{Discrete Mathematics}, \emph{Probability \& Statistics}, \emph{Linear Algebra}, \emph{Applied Mathematics \& Word Problems}, \emph{Physics \& Chemistry}, and \emph{Advanced Mathematics}. We leverage GPT-4.1-mini \citep{achiam2023gpt} to classify each question into exactly one of these categories.
+
+\paragraph{BERTopic clustering.}
+For the lightweight clustering pipeline used in \Cref{sec:clustering_robustness}, we encode each prompt with \texttt{all-MiniLM-L6-v2} sentence embeddings and partition the dataset with K-Means ($K=10$). No teacher LLM, dimensionality reduction, or topic-naming step is required at training time.
+
+%\paragraph{Beta-Binomial hyperparameter fitting.}                               
+%For \oursBB, the prior $\mathrm{Beta}(\alpha_0, \beta_0)$ is re-estimated at every update step from the current batch's per-prompt empirical pass rates $\{\hat p_m = s_m / G\}_{m=1}^M$ via Empirical Bayes with method of moments. Letting $m$ and $v$ denote the batch mean and variance of $\{\hat p_m\}$, whenever the Beta admissibility condition $0 < v < m(1-m)$ holds we set the concentration $\nu = m(1-m)/v - 1$ and take $\alpha_0 = \nu m$, $\beta_0 = \nu(1-m)$; otherwise  
+%(constant or overdispersed batches) we fall back to a weak prior with effective sample size $\nu = 2$, i.e.\ $\alpha_0 = 2m$, $\beta_0 = 2(1-m)$. Both components are floored at a small $\epsilon$ for numerical safety. No state is carried across update steps, so the procedure is closed-form and its cost is negligible compared to the rollout step.
+
+\paragraph{Beta-Binomial hyperparameter fitting.}
+For \oursBB, the prior $\mathrm{Beta}(\alpha_0,\beta_0)$ is estimated at every update step from accumulated historical per-prompt empirical pass rates via Empirical Bayes with method of moments. We maintain Welford running statistics $\mathcal W_{\mathrm{BB}}$ over $\hat p_m=s_m/G$ and, before computing advantages for the current batch, read the lagged historical mean $\bar p_{\mathrm{hist}}$ and variance $v_{\mathrm{hist}}$. Whenever the Beta admissibility condition $0<v_{\mathrm{hist}}<\bar p_{\mathrm{hist}}(1-\bar p_{\mathrm{hist}})$ holds, we set the concentration
+$\nu=\bar p_{\mathrm{hist}}(1-\bar p_{\mathrm{hist}})/v_{\mathrm{hist}}-1$
+and take $\alpha_0=\nu\bar p_{\mathrm{hist}}$, $\beta_0=\nu(1-\bar p_{\mathrm{hist}})$; otherwise, for warm-up, constant, or overdispersed histories, we fall back to a weak prior with effective sample size $\nu=2$, i.e.\ $\alpha_0=2\bar p_{\mathrm{hist}}$, $\beta_0=2(1-\bar p_{\mathrm{hist}})$. Both components are floored at a small $\epsilon$ for numerical safety; before sufficient history is available, we use $\mathrm{Beta}(1,1)$. The current batch is added to $\mathcal W_{\mathrm{BB}}$ only after the policy update, so \oursBB carries state across update steps while remaining closed-form and negligible in cost compared to the rollout step.
+
+\paragraph{Code-generation training.}
+For the PRIME-RL experiments (\Cref{sec:results}), we train Qwen3-8B for one epoch using the same optimizer / batch-size configuration as the math experiments. Reward is binary (pass/fail) determined by unit-test execution. Clusters are defined by the prompt's source dataset (APPS / CodeContests / TACO / Codeforces).
+
+\paragraph{Evaluation protocol.}
+All evaluations use a maximum of 20{,}480 generated tokens with $\text{top-}p=1.0$ and temperature $1.0$. We use the same instruction template as the DAPO-Math-17K dataset for math evaluation to maintain training/evaluation distribution match. Pass@1 is reported as the average over 32 independent runs.
+
+\section{Supplementary Materials}
+\label{sec:supp_materials}
+
+\subsection{Per-Benchmark Results for the BERTopic Clustering Variant}
+
+We report the evaluation results for our \oursG using either the BERTopic or GPT-4.1 clustering method on each dataset in Table \ref{tab:bertopic_full}.
+
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Method} & \textbf{MATH-500} & \textbf{AIME-24} & \textbf{AIME-25} & \textbf{AMC23} & \textbf{Olympiad} & \textbf{Avg.} \\
+\midrule
+\multicolumn{7}{l}{\textbf{Qwen3-8B}} \\
+\midrule
+GRPO                          & 65.60          & 50.21          & 42.29          & \textbf{89.53} & 45.99          & 58.72 \\
+\oursG-topic (GPT-4.1)        & \textbf{76.80} & 56.04          & 47.92          & 86.25          & \textbf{54.93} & 64.39 \\
+\oursG-topic (BERTopic)       & 70.78          & \textbf{65.83} & \textbf{51.67} & 87.50          & 48.88          & \textbf{64.93} \\
+\midrule
+\multicolumn{7}{l}{\textbf{Qwen3-14B}} \\
+\midrule
+GRPO                          & \textbf{75.73} & 49.99          & 37.92          & 85.47          & \textbf{50.77} & 59.98 \\
+\oursG-topic (GPT-4.1)        & 71.01          & \textbf{58.13} & \textbf{45.63} & \textbf{85.47} & 48.52          & \textbf{61.75} \\
+\oursG-topic (BERTopic)       & 70.78          & 55.83          & 45.41          & 84.38          & 49.19          & 61.12 \\
+\bottomrule
+\end{tabular}
+\caption{Per-benchmark Pass@1 (\%) for the BERTopic clustering ablation. The cheap BERTopic variant tracks the GPT-4.1 variant within noise on both 8B and 14B scales, far exceeding GRPO.}
+\label{tab:bertopic_full}
+\end{table}
+
+% \subsection{Comparison Against Recent Value-Free RL Baselines}
+% \label{appendix:newbaselines}
+
+% To verify that EBPO's gains hold against more recent value-free RL methods proposed concurrently with this work, we compare against REINFORCE++, RLOO, and SPO (Single-Stream Policy Optimization) on Qwen3-8B and Qwen3-14B under the same training and evaluation protocol as the main results. \Cref{tab:newbaselines_results} reports per-benchmark Pass@1.
+
+% \begin{table}[t]
+% \centering
+% \small
+% \begin{tabular}{lcccccc}
+% \toprule
+% \textbf{Method} & \textbf{MATH-500} & \textbf{AIME-24} & \textbf{AIME-25} & \textbf{AMC23} & \textbf{Olympiad} & \textbf{Avg.} \\
+% \midrule
+% \multicolumn{7}{l}{\textbf{Qwen3-8B}} \\
+% \midrule
+% REINFORCE++   & 70.07          & \textbf{62.71} & 48.13          & 85.63          & 49.11          & 63.13 \\
+% RLOO          & \textbf{76.36} & 54.16          & 44.58          & 85.47          & 50.45          & 62.20 \\
+% SPO           & 75.66          & 52.88          & 43.13          & 85.72          & 54.45          & 62.37 \\
+% \oursG-topic  & 76.80          & 56.04          & 47.92          & 86.25          & \textbf{54.93} & 64.39 \\
+% \oursBB-topic & 70.42          & \textbf{67.70} & \textbf{53.54} & \textbf{87.66} & 49.15          & \textbf{65.69} \\
+% \midrule
+% \multicolumn{7}{l}{\textbf{Qwen3-14B}} \\
+% \midrule
+% REINFORCE++   & 66.18          & 56.45          & 36.67          & 79.22          & 45.62          & 56.83 \\
+% RLOO          & 67.43          & 55.91          & 45.41          & \textbf{85.31} & 45.74          & 59.96 \\
+% SPO           & 63.48          & 57.50          & 45.00          & 77.81          & 46.92          & 58.14 \\
+% \oursG-topic  & 71.01          & \textbf{58.13} & 45.63          & 85.47          & 48.52          & 61.75 \\
+% \oursBB-topic & \textbf{73.69} & 57.50          & \textbf{47.50} & 82.66          & \textbf{50.89} & \textbf{62.45} \\
+% \bottomrule
+% \end{tabular}
+% \caption{Comparison against recent value-free RL baselines (REINFORCE++, RLOO, SPO). EBPO retains the highest average Pass@1 on both scales, with \oursBB leading. While individual baselines occasionally win specific benchmarks (e.g., REINFORCE++ on AIME-24, RLOO on MATH-500), EBPO is the only method with consistently strong performance across the suite.}
+% \label{tab:newbaselines_results}
+% \end{table}
+
+\subsection{Ablation: Isolating EB Shrinkage from Batch Normalization}
+\label{appendix:ablation}
+
+EBPO performs two operations on the advantage: (i) the Empirical Bayes shrinkage of the per-prompt baseline (the central contribution of this paper), and (ii) a downstream batch-level standardization of the resulting raw advantages. To isolate the contribution of (ii), we evaluate a controlled GRPO + Batch Normalization (\textbf{GRPO+BN}) variant that applies the same batch-level standardization as EBPO but \emph{without} the EB shrinkage step. As shown in Table \ref{tab:bn_ablation}, while BN (GRPO + BN) can provide marginal stability in certain benchmarks, it lacks the consistent performance profile of the full EBPO framework. These results confirm that the primary benefit of EBPO stems from the shrinkage estimator itself. While BN standardizes the gradient scale, it cannot resolve the vanishing gradient problem in saturated groups where the local reward variance is zero—a critical failure mode that EBPO addresses by "borrowing strength" from the global prior.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Method} & \textbf{MATH-500} & \textbf{AIME-24} & \textbf{AIME-25} & \textbf{AMC23} & \textbf{Olympiad} & \textbf{Avg.} \\
+\midrule
+\multicolumn{7}{l}{\textbf{Qwen3-8B}} \\
+\midrule
+GRPO          & 65.60          & 50.21          & 42.29          & \textbf{89.53} & 45.99          & 58.72 \\
+GRPO + BN     & 70.95          & 52.71          & 32.08          & 85.63          & 47.18          & 57.71 \\
+\oursG-topic  & \textbf{76.80} & 56.04          & 47.92          & 86.25          & \textbf{54.93} & 64.39 \\
+\oursBB-topic & 70.42          & \textbf{67.70} & \textbf{53.54} & 87.66          & 49.15          & \textbf{65.69} \\
+\midrule
+\multicolumn{7}{l}{\textbf{Qwen3-14B}} \\
+\midrule
+GRPO          & \textbf{75.73} & 49.99          & 37.92          & \textbf{85.47} & 50.77          & 59.98 \\
+GRPO + BN     & 67.00          & \textbf{60.42} & 43.54          & 82.63          & 46.29          & 59.98 \\
+\oursG-topic  & 71.01          & 58.13          & 45.63          & 85.47          & 48.52          & 61.75 \\
+\oursBB-topic & 73.69          & 57.50          & \textbf{47.50} & 82.66          & \textbf{50.89} & \textbf{62.45} \\
+\bottomrule
+\end{tabular}
+\caption{Isolating the contribution of EB shrinkage. GRPO + BN applies the same batch-level advantage standardization as EBPO but uses the local sample mean as the baseline (no shrinkage). The marginal gain of GRPO + BN over vanilla GRPO ($-1.01$ on Qwen3-8B, $+0.0$ on Qwen3-14B) confirms that batch normalization alone cannot resolve the vanishing-gradient pathology in saturated groups; the EB shrinkage step is the load-bearing ingredient, contributing the remaining $\sim$5--7\% average gap.}
+\label{tab:bn_ablation}
+\end{table}
+
+
+\begin{table*}[t]
+\centering
+\resizebox{\textwidth}{!}{
+\begin{tabular}{lccccc|c}
+\toprule
+\textbf{Method} & \textbf{MATH-500} & \textbf{AIME-2024} & \textbf{AIME-2025} & \textbf{AMC23} & \textbf{OlympiadBench} & \textbf{Average} \\
+\midrule
+GRPO            & 22.66 & 2.71 & 0.00 & 12.66 & 6.97 & 9.00 \\
+Dr.\,GRPO       & 22.12 & \textbf{2.91} & \textbf{0.42} & 12.36 & 6.65 & 8.89 \\
+DAPO            & 18.05 & 2.29 & 0.00 & 11.09 & 6.05 & 7.50 \\
+EntropyMech     & 15.01 & 1.25 & 0.21 & 10.16 & 5.30 & 6.39 \\
+\oursG-topic    & \textbf{23.84} & 2.29 & 0.21 & \textbf{15.78} & \textbf{7.75} & \textbf{9.97} \\
+\bottomrule
+\end{tabular}
+}
+\caption{
+Performance comparison of EBPO and baselines across math reasoning benchmarks (group size $G=4$) on Llama-3.1-8B model.
+}
+\label{tab:ebpo_results_llama}
+\end{table*}
+
+\subsection{Ablation: Topic-Clustering vs.\ Naive Shuffled Batches}
+\label{appendix:ablation_clustering}
+
+To isolate the contribution of topic clustering to overall performance, we compare \oursG-topic against \oursG-naive, in which the EB shrinkage is applied to randomly shuffled batches.
+
+\begin{table}[t]
+\centering
+\small
+\begin{tabular}{lccccc}
+    \toprule
+    \textbf{Method} & \textbf{MATH-500} & \textbf{AIME24} & \textbf{AIME25} & \textbf{AMC23} & \textbf{OlympiadBench} \\
+    \midrule
+    \multicolumn{6}{l}{\textbf{Qwen3-8B}} \\
+    \oursG-topic & \textbf{76.80} & \textbf{56.04} & \textbf{47.92} & 86.25 & \textbf{54.93} \\
+    \oursG-naive & 68.58 & 53.75 & 41.88 & \textbf{87.34} & 48.44 \\
+    \midrule
+    \multicolumn{6}{l}{\textbf{Qwen3-14B}} \\
+    \oursG-topic & 71.01 & \textbf{58.13} & \textbf{45.63} & 85.47 & \textbf{48.52} \\
+    \oursG-naive & \textbf{72.08} & 52.29 & 40.21 & \textbf{86.56} & 48.41 \\
+    \bottomrule
+    \end{tabular}
+\caption{Ablation comparing topic-clustered EBPO against naive shuffled-batch EBPO. Pass@1 (\%).}
+\label{tab:ablation_clustering}
+\end{table}
+
+The results in \Cref{tab:ablation_clustering} show that semantic clustering is a vital prerequisite for effective EB regularization. When a batch contains unrelated topics, the estimated prior mean $\mu_{\text{glob}}$ and variance $\tau^2$ describe a broad, high-entropy reward distribution that need not match any specific prompt's true reward potential, so shrinkage can introduce harmful bias. Clustering by topic ensures the prior is derived from semantically related tasks, yielding a sharper and more relevant baseline.
+
+\subsection{Remark and Algorithm}
+\begin{remark}[Online stability vs.\ bias for between-group variance]
+\label{remark:between_group_var}
+Strictly we would define the prior variance as $\tau_{\text{latent}}^2 = \text{Var}(\bar r_m) - \sigma^2/G$ to remove sampling noise. However, in online training this subtraction can yield negative variance estimates. Using the raw $\text{Var}(\bar r_m)$ as a proxy for $\tau^2$ inflates the denominator and produces a \emph{conservative} shrinkage estimator. This keeps $\mathcal{S}_q\in[0,1]$ and favors the local group mean when uncertainty is high, providing safe ``soft'' regularization that prevents policy collapse without over-constraining the model.
+\end{remark}
+
+\iffalse
+\begin{algorithm}[tb]
+   \caption{EBPO Advantage Estimation (Gaussian Variant)}
+   \label{alg:EBPO}
+\begin{algorithmic}[1]
+   \STATE {\bfseries Input:} Policy $\pi_\theta$, reference policy $\pi_{\text{ref}}$, group size $G$
+   \STATE Initialize Welford statistics $\mathcal{W}_{\text{glob}}$ and $\mathcal{W}_{\text{means}}$
+   \FOR{each training iteration}
+       \STATE Sample batch of prompts $\{q_1, \dots, q_M\} \sim \mathcal{D}$
+       \FOR{$m=1$ {\bfseries to} $M$}
+           \STATE Sample $G$ responses $\{o_{m,1}, \dots, o_{m,G}\} \sim \pi_\theta(\cdot \mid q_m)$
+           \STATE Compute rewards $r_{m,i} \in \{0,1\}$ and $\mu_{\text{group},m} = \frac{1}{G}\sum_{i=1}^G r_{m,i}$
+           \STATE Update $\mathcal{W}_{\text{glob}}$ with all $\{r_{m,i}\}_{i=1}^G$
+           \STATE Update $\mathcal{W}_{\text{means}}$ with $\mu_{\text{group},m}$
+       \ENDFOR
+       \STATE $\mu_{\text{glob}} \gets \text{mean}(\mathcal{W}_{\text{glob}}),\quad \sigma^2 \gets \text{var}(\mathcal{W}_{\text{glob}}),\quad \tau^2 \gets \text{var}(\mathcal{W}_{\text{means}})$
+       \FOR{$m=1$ {\bfseries to} $M$}
+            \STATE $\mathcal{S}_{q_m} \gets \frac{\sigma^2 / G}{\sigma^2 / G + \tau^2}$ \COMMENT{Shrinkage factor}
+            \STATE $V_{q_m}^{\oursG} \gets (1 - \mathcal{S}_{q_m}) \mu_{\text{group},m} + \mathcal{S}_{q_m} \mu_{\text{glob}}$ \COMMENT{Gaussian EBPO baseline}
+            \FOR{$i=1$ {\bfseries to} $G$}
+                \STATE $\hat{A}_{m,i}^{\text{raw}} \gets r_{m,i} - V_{q_m}^{\oursG}$
+            \ENDFOR
+       \ENDFOR
+       \STATE $\mu_{\hat{A}} \gets \text{mean}(\{\hat{A}_{m,i}^{\text{raw}}\}),\quad \sigma_{\hat{A}} \gets \text{std}(\{\hat{A}_{m,i}^{\text{raw}}\})$
+       \FOR{$m=1$ {\bfseries to} $M$, $i=1$ {\bfseries to} $G$}
+           \STATE $\hat{A}_{m,i} \gets (\hat{A}_{m,i}^{\text{raw}} - \mu_{\hat{A}})/(\sigma_{\hat{A}} + \epsilon)$
+       \ENDFOR
+       \STATE $\theta \gets \text{Update via clipped surrogate objective with } \hat{A}_{m,i}$
+   \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+\fi
+
+\begin{algorithm}[tb]
+\caption{EBPO Advantage Estimation (Gaussian Variant)}
+\label{alg:EBPO}
+\begin{algorithmic}[1]
+    \STATE {\bfseries Input:} Policy $\pi_\theta$, reference policy $\pi_{\mathrm{ref}}$, group size $G$, numerical floor $\epsilon$
+    \STATE Initialize Welford statistics $\mathcal W_{\mathrm{glob}}$, $\mathcal W_{\mathrm{within}}$, and $\mathcal W_{\mathrm{means}}$
+    \FOR{each training iteration}
+        \STATE Sample batch of prompts $\{q_1,\dots,q_M\}\sim\mathcal D$
+        \FOR{$m=1$ {\bfseries to} $M$}
+            \STATE Sample $G$ responses $\{o_{m,1},\dots,o_{m,G}\}\sim\pi_\theta(\cdot\mid q_m)$
+            \STATE Compute rewards $r_{m,i}\in\{0,1\}$ and
+            \[
+                \mu_{\mathrm{group},m}
+                \gets
+                \frac{1}{G}\sum_{i=1}^{G} r_{m,i}
+            \]
+            \STATE Compute the local within-group variance
+            \[
+                \hat\sigma_m^2
+                \gets
+                \frac{1}{G-1}\sum_{i=1}^{G}
+                \left(r_{m,i}-\mu_{\mathrm{group},m}\right)^2
+            \]
+            \STATE Update $\mathcal W_{\mathrm{glob}}$ with all $\{r_{m,i}\}_{i=1}^{G}$
+            \STATE Update $\mathcal W_{\mathrm{within}}$ with $\hat\sigma_m^2$
+            \STATE Update $\mathcal W_{\mathrm{means}}$ with $\mu_{\mathrm{group},m}$
+        \ENDFOR
+        \STATE $\mu_{\mathrm{glob}}\gets \mathrm{mean}(\mathcal W_{\mathrm{glob}})$
+        \STATE $\sigma^2\gets \mathrm{mean}(\mathcal W_{\mathrm{within}})$ \COMMENT{Expected within-group variance}
+        \STATE $\tau^2\gets \mathrm{var}(\mathcal W_{\mathrm{means}})$ \COMMENT{Between-group variance proxy}
+        \FOR{$m=1$ {\bfseries to} $M$}
+            \STATE $\mathcal S_{q_m}
+            \gets
+            \frac{\sigma^2/G}{\sigma^2/G+\tau^2+\epsilon}$
+            \STATE $V_{q_m}^{\oursG}
+            \gets
+            (1-\mathcal S_{q_m})\mu_{\mathrm{group},m}
+            +
+            \mathcal S_{q_m}\mu_{\mathrm{glob}}$
+            \FOR{$i=1$ {\bfseries to} $G$}
+                \STATE $\hat A_{m,i}^{\mathrm{raw}}
+                \gets
+                r_{m,i}-V_{q_m}^{\oursG}$
+            \ENDFOR
+        \ENDFOR
+        \STATE $\mu_{\hat A}\gets \mathrm{mean}(\{\hat A_{m,i}^{\mathrm{raw}}\}_{m,i})$;\quad
+        $\sigma_{\hat A}\gets \mathrm{std}(\{\hat A_{m,i}^{\mathrm{raw}}\}_{m,i})$
+        \FOR{$m=1$ {\bfseries to} $M$, $i=1$ {\bfseries to} $G$}
+            \STATE $\hat A_{m,i}
+            \gets
+            \frac{\hat A_{m,i}^{\mathrm{raw}}-\mu_{\hat A}}
+            {\sigma_{\hat A}+\epsilon}$
+        \ENDFOR
+        \STATE $\theta\gets$ Update via clipped surrogate objective with $\hat A_{m,i}$
+    \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\iffalse
+\begin{algorithm}[tb]
+   \caption{EBPO Advantage Estimation (Beta-Binomial Variant)}
+   \label{alg:EBPO_BB}
+\begin{algorithmic}[1]
+   \STATE {\bfseries Input:} Policy $\pi_\theta$, group size $G$, cluster assignment $c(q)\in\{1,\dots,K\}$
+   \STATE Initialize per-cluster running counts $(s_k, f_k)\gets(0,0)$ and prior $(\alpha_k,\beta_k)\gets(1,1)$ for each $k$
+   \FOR{each training iteration}
+       \STATE Sample batch of prompts $\{q_1,\dots,q_M\}\sim\mathcal{D}$
+       \FOR{$m=1$ {\bfseries to} $M$}
+           \STATE Sample $G$ responses; compute rewards $r_{m,i}\in\{0,1\}$ and successes $s_m=\sum_i r_{m,i}$
+           \STATE $k \gets c(q_m)$;\quad $s_k \gets s_k + s_m,\;\; f_k \gets f_k + (G - s_m)$
+       \ENDFOR
+       \FORALL{clusters $k$ touched in this batch}
+           \STATE Refit $(\alpha_k,\beta_k)$ via 3--5 fixed-point iterations on the marginal Beta-Binomial log-likelihood, warm-started from previous values \citep{minka2000beta}
+       \ENDFOR
+       \FOR{$m=1$ {\bfseries to} $M$}
+           \STATE $k \gets c(q_m)$
+           \STATE $V_{q_m}^{\oursBB} \gets (\alpha_k + s_m) / (\alpha_k + \beta_k + G)$ \COMMENT{Beta-Binomial posterior mean}
+           \FOR{$i=1$ {\bfseries to} $G$}
+               \STATE $\hat{A}_{m,i}^{\text{raw}} \gets r_{m,i} - V_{q_m}^{\oursBB}$
+           \ENDFOR
+       \ENDFOR
+       \STATE Standardize $\hat{A}_{m,i}^{\text{raw}}$ across the batch as in \Cref{alg:EBPO}; perform clipped-surrogate update.
+   \ENDFOR
+\end{algorithmic}
+\end{algorithm}
+
+\begin{algorithm}[tb]
+     \caption{EBPO Advantage Estimation (Beta-Binomial Variant)}
+     \label{alg:EBPO_BB}
+  \begin{algorithmic}[1]
+     \STATE {\bfseries Input:} Policy $\pi_\theta$, group size $G$, numerical floor $\epsilon$
+     \FOR{each training iteration}
+         \STATE Sample batch of prompts $\{q_1,\dots,q_M\}\sim\mathcal{D}$
+         \FOR{$m=1$ {\bfseries to} $M$}
+             \STATE Sample $G$ responses; compute binary rewards $r_{m,i}\in\{0,1\}$
+             \STATE $k_m \gets G$;\quad $s_m \gets \sum_{i=1}^{G} r_{m,i}$;\quad $\hat p_m \gets s_m / k_m$
+         \ENDFOR
+         \STATE \COMMENT{Empirical Bayes: fit $\mathrm{Beta}(\alpha_0,\beta_0)$ per batch by method of moments on $\{\hat p_m\}$}
+         \STATE $m \gets \frac{1}{M}\sum_{m=1}^{M}\hat p_m$;\quad $v \gets \frac{1}{M}\sum_{m=1}^{M}(\hat p_m - m)^2$
+         \IF{$\epsilon < v < m(1-m) - \epsilon$}
+             \STATE $\nu \gets m(1-m)/v - 1$
+             \STATE $\alpha_0 \gets \max(\nu\, m,\;\epsilon)$;\quad $\beta_0 \gets \max(\nu\,(1-m),\;\epsilon)$
+         \ELSE
+             \STATE \COMMENT{Degenerate or overdispersed batch: weak prior with effective sample size $\nu=2$}
+             \STATE $\alpha_0 \gets \max(2m,\;\epsilon)$;\quad $\beta_0 \gets \max(2(1-m),\;\epsilon)$
+         \ENDIF
+         \FOR{$m=1$ {\bfseries to} $M$}
+             \STATE $V_{q_m}^{\oursBB} \gets (\alpha_0 + s_m) / (\alpha_0 + \beta_0 + k_m)$ \COMMENT{Beta-Binomial posterior mean}
+             \FOR{$i=1$ {\bfseries to} $G$}
+                 \STATE $\hat{A}_{m,i}^{\text{raw}} \gets r_{m,i} - V_{q_m}^{\oursBB}$
+             \ENDFOR
+         \ENDFOR
+         \STATE Standardize $\hat{A}_{m,i}^{\text{raw}}$ across the batch (subtract batch mean; optionally divide by batch std$+\epsilon$); perform clipped-surrogate update.
+     \ENDFOR
+  \end{algorithmic}
+  \end{algorithm}
+
+\begin{algorithm}[tb]
+     \caption{EBPO Advantage Estimation (Beta-Binomial Variant)}
+     \label{alg:EBPO_BB}
+  \begin{algorithmic}[1]
+     \STATE {\bfseries Input:} Policy $\pi_\theta$, group size $G$, numerical floor $\epsilon$
+     \STATE Initialize Welford running statistics $\mathcal{W}_{\mathrm{BB}}$ over historical per-prompt pass rates
+     \FOR{each training iteration}
+         \STATE Sample batch of prompts $\{q_1,\dots,q_M\}\sim\mathcal{D}$
+         \FOR{$m=1$ {\bfseries to} $M$}
+             \STATE Sample $G$ responses; compute binary rewards $r_{m,i}\in\{0,1\}$
+             \STATE $k_m \gets G$;\quad $s_m \gets \sum_{i=1}^{G} r_{m,i}$;\quad $\hat p_m \gets s_m / k_m$
+         \ENDFOR
+         \STATE \COMMENT{Empirical Bayes: fit $\mathrm{Beta}(\alpha_0,\beta_0)$ from accumulated historical pass-rate statistics}
+         \STATE Read lagged running mean and variance $(\bar p_{\mathrm{hist}}, v_{\mathrm{hist}})$ from $\mathcal{W}_{\mathrm{BB}}$
+         \IF{$\epsilon < v_{\mathrm{hist}} < \bar p_{\mathrm{hist}}(1-\bar p_{\mathrm{hist}}) - \epsilon$}
+             \STATE $\nu \gets \bar p_{\mathrm{hist}}(1-\bar p_{\mathrm{hist}})/v_{\mathrm{hist}} - 1$
+             \STATE $\alpha_0 \gets \max(\nu\, \bar p_{\mathrm{hist}},\;\epsilon)$;\quad $\beta_0 \gets \max(\nu\,(1-\bar p_{\mathrm{hist}}),\;\epsilon)$
+         \ELSE
+             \STATE \COMMENT{Warm-up, degenerate, or overdispersed history: weak prior with effective sample size $\nu=2$}
+             \STATE $\alpha_0 \gets \max(2\bar p_{\mathrm{hist}},\;\epsilon)$;\quad $\beta_0 \gets \max(2(1-\bar p_{\mathrm{hist}}),\;\epsilon)$
+         \ENDIF
+         \FOR{$m=1$ {\bfseries to} $M$}
+             \STATE $V_{q_m}^{\oursBB} \gets (\alpha_0 + s_m) / (\alpha_0 + \beta_0 + k_m)$ \COMMENT{Beta-Binomial posterior mean}
+             \FOR{$i=1$ {\bfseries to} $G$}
+                 \STATE $\hat{A}_{m,i}^{\text{raw}} \gets r_{m,i} - V_{q_m}^{\oursBB}$
+             \ENDFOR
+         \ENDFOR
+         \STATE Standardize $\hat{A}_{m,i}^{\text{raw}}$ across the batch (subtract batch mean; optionally divide by batch std$+\epsilon$); perform clipped-surrogate update.
+         \STATE Update $\mathcal{W}_{\mathrm{BB}}$ with current batch pass rates $\{\hat p_m\}_{m=1}^{M}$
+     \ENDFOR
+  \end{algorithmic}
+  \end{algorithm}
+\fi
+\begin{algorithm}[tb]
+     \caption{EBPO Advantage Estimation (Beta-Binomial Variant)}
+     \label{alg:EBPO_BB}
+  \begin{algorithmic}[1]
+     \STATE {\bfseries Input:} Policy $\pi_\theta$, group size $G$, numerical floor $\epsilon$
+     \STATE Initialize Welford running statistics $\mathcal{W}_{\mathrm{BB}}$ over historical per-prompt pass rates
+     \FOR{each training iteration}
+         \STATE Sample batch of prompts $\{q_1,\dots,q_M\}\sim\mathcal{D}$
+         \FOR{$m=1$ {\bfseries to} $M$}
+             \STATE Sample $G$ responses; compute binary rewards $r_{m,i}\in\{0,1\}$
+             \STATE $k_m \gets G$;\quad $s_m \gets \sum_{i=1}^{G} r_{m,i}$;\quad $\hat p_m \gets s_m / k_m$
+         \ENDFOR
+         \STATE \COMMENT{Empirical Bayes: fit $\mathrm{Beta}(\alpha_0,\beta_0)$ from accumulated historical pass-rate statistics}
+         \IF{$\mathcal{W}_{\mathrm{BB}}$ contains sufficient historical statistics}
+             \STATE Read lagged running mean and variance $(\bar p_{\mathrm{hist}}, v_{\mathrm{hist}})$ from $\mathcal{W}_{\mathrm{BB}}$
+             \IF{$\epsilon < v_{\mathrm{hist}} < \bar p_{\mathrm{hist}}(1-\bar p_{\mathrm{hist}}) - \epsilon$}
+                 \STATE $\nu \gets \bar p_{\mathrm{hist}}(1-\bar p_{\mathrm{hist}})/v_{\mathrm{hist}} - 1$
+                 \STATE $\alpha_0 \gets \max(\nu\, \bar p_{\mathrm{hist}},\;\epsilon)$;\quad $\beta_0 \gets \max(\nu\,(1-\bar p_{\mathrm{hist}}),\;\epsilon)$
+             \ELSE
+                 \STATE \COMMENT{Degenerate or overdispersed history: weak prior with effective sample size $\nu=2$}
+                 \STATE $\alpha_0 \gets \max(2\bar p_{\mathrm{hist}},\;\epsilon)$;\quad $\beta_0 \gets \max(2(1-\bar p_{\mathrm{hist}}),\;\epsilon)$
+             \ENDIF
+         \ELSE
+             \STATE \COMMENT{Warm-up: uninformative prior}
+             \STATE $\alpha_0 \gets 1$;\quad $\beta_0 \gets 1$
+         \ENDIF
+         \FOR{$m=1$ {\bfseries to} $M$}
+             \STATE $V_{q_m}^{\oursBB} \gets (\alpha_0 + s_m) / (\alpha_0 + \beta_0 + k_m)$ \COMMENT{Beta-Binomial posterior mean}
+             \FOR{$i=1$ {\bfseries to} $G$}
+                 \STATE $\hat{A}_{m,i}^{\text{raw}} \gets r_{m,i} - V_{q_m}^{\oursBB}$
+             \ENDFOR
+         \ENDFOR
+         \STATE Standardize $\hat{A}_{m,i}^{\text{raw}}$ across the batch (subtract batch mean; optionally divide by batch std$+\epsilon$); perform clipped-surrogate update.
+         \STATE Update $\mathcal{W}_{\mathrm{BB}}$ with current batch pass rates $\{\hat p_m\}_{m=1}^{M}$
+     \ENDFOR
+  \end{algorithmic}
+  \end{algorithm}
+
+\begin{figure}[t]
+\centering
+        \includegraphics[width=0.45\textwidth]{figs/icml_policy_entropy.pdf}
+    \caption{
+    \textbf{Evolution of Policy Entropy ($G=4$).} EBPO maintains a consistently higher policy entropy than GRPO, demonstrating that the global prior effectively sustains exploration throughout training.}
+    \label{fig:entropy_curve}
+\end{figure}
+
+\section{Proof Details}
+\label{sec:proof_details}
+
+\begin{proof}[Proof of Theorem~\ref{thm:non_vanishing}]
+
+\textbf{1. GRPO Case:}
+If $r_i = 0$ for all $i$, then the group mean is $\mu_{\text{group}} = \frac{1}{G}\sum 0 = 0$.
+The raw advantage for any response $o_i$ is:
+$$ \hat{A}^{raw}_{\text{GRPO}}(o_i) = r_i - \mu_{\text{group}} = 0 - 0 = 0 $$
+Consequently, the gradient update $\nabla J = \mathbb{E}[\hat{A} \nabla \log \pi] = 0$. The model receives no learning signal.
+
+\textbf{2. EBPO Case:}
+With $\mu_{\text{group}} = 0$, the EBPO baseline becomes:
+$$ V^{\text{EBPO}} = (1 - \mathcal{S})(0) + \mathcal{S}\mu_{\text{glob}} = \mathcal{S}\mu_{\text{glob}} $$
+The raw advantage for any response $o_i$ is:
+$$ \hat{A}^{raw}_{\text{EBPO}}(o_i) = r_i - V^{\text{EBPO}} = 0 - \mathcal{S}\mu_{\text{glob}} = -\mathcal{S}\mu_{\text{glob}} $$
+Since $\mathcal{S} > 0$ and $\mu_{\text{glob}} > 0$ (assuming the policy has succeeded at least once in history), we have $\hat{A}^{raw}_{\text{EBPO}} < 0$. This yields a non-zero negative gradient, penalizing the generation of incorrect responses even when no correct response is present in the group.
+\end{proof}
+
+%\begin{proof}[Proof of Theorem~\ref{thm:mse_stability}]
+%The Mean Squared Error of an estimator $\hat{\theta}$ is defined as $\mathbb{E}[(\hat{\theta} - \theta_q)^2]$.
+%For the GRPO baseline (Sample Mean):
+%$$ \text{MSE}(V^{\text{GRPO}}) = \text{Var}(\mu_{\text{group}}) = \frac{\sigma^2}{G} $$
+
+%For the EBPO baseline (Shrinkage Estimator), we seek to minimize the Bayes Risk (Expected MSE). The optimal linear estimator of the form $V = (1-w)\mu_{\text{group}} + w\mu_{\text{glob}}$ minimizes:
+%$$ \mathcal{L}(w) = \mathbb{E}_{\theta, r} [((1-w)\mu_{\text{group}} + w\mu_{\text{glob}} - \theta_q)^2] $$
+%Standard Bayesian derivation shows the optimal weight $w^*$ (which corresponds to our shrinkage factor $\mathcal{S}$) is:
+%$$ \mathcal{S} = \frac{\text{Var}(\mu_{\text{group}})}{\text{Var}(\mu_{\text{group}}) + \text{Var}(\theta_q)} = \frac{\sigma^2/G}{\sigma^2/G + \tau^2} $$
+%Substituting $\mathcal{S}$ back into the MSE equation yields:
+%$$ \text{MSE}(V^{\text{EBPO}}) = (1 - \mathcal{S}) \frac{\sigma^2}{G} $$
+%Since $0 < \mathcal{S} < 1$ (provided $\tau^2 > 0$), it follows that:
+%$$ \text{MSE}(V^{\text{EBPO}}) < \frac{\sigma^2}{G} = \text{MSE}(V^{\text{GRPO}}) $$
+%Thus, EBPO provides a more stable, lower-variance estimate of the prompt's difficulty, stabilizing the advantage computation when $G$ is small.
+%\end{proof}
+
+\begin{proof}[Proof of Theorem~\ref{thm:mse_stability}]
+Let $\theta_q$ denote the true latent success rate for prompt $q$, and let
+\[
+    \mu_{\mathrm{group}}
+    =
+    \frac{1}{G}\sum_{i=1}^{G} r_i
+\]
+be the observed local group mean. Under the Gaussian empirical Bayes model, we assume
+\[
+    \theta_q \sim \mathcal N(\mu_{\mathrm{glob}},\tau^2),
+    \qquad
+    \mu_{\mathrm{group}}\mid \theta_q
+    =
+    \theta_q+\varepsilon,
+    \qquad
+    \mathbb E[\varepsilon\mid \theta_q]=0,
+    \qquad
+    \operatorname{Var}(\varepsilon\mid \theta_q)=\frac{\sigma^2}{G}.
+\]
+Equivalently,
+\[
+    \operatorname{Var}(\mu_{\mathrm{group}}\mid \theta_q)
+    =
+    \frac{\sigma^2}{G}.
+\]
+Here $\sigma^2/G$ denotes the conditional sampling variance
+$\operatorname{Var}(\mu_{\mathrm{group}}\mid \theta_q)$, not the marginal variance of
+$\mu_{\mathrm{group}}$ across prompts.
+
+Consider the linear shrinkage estimator
+\[
+    V_w
+    =
+    (1-w)\mu_{\mathrm{group}}+w\mu_{\mathrm{glob}},
+    \qquad
+    w\in[0,1].
+\]
+Its estimation error is
+\[
+    V_w-\theta_q
+    =
+    (1-w)(\mu_{\mathrm{group}}-\theta_q)
+    -
+    w(\theta_q-\mu_{\mathrm{glob}})
+    =
+    (1-w)\varepsilon
+    -
+    w(\theta_q-\mu_{\mathrm{glob}}).
+\]
+Since $\varepsilon$ has mean zero and is independent of $\theta_q-\mu_{\mathrm{glob}}$, the Bayes risk is
+\[
+    R(w)
+    =
+    \mathbb E[(V_w-\theta_q)^2]
+    =
+    (1-w)^2\frac{\sigma^2}{G}
+    +
+    w^2\tau^2.
+\]
+Differentiating with respect to $w$ gives
+\[
+    \frac{dR(w)}{dw}
+    =
+    -2(1-w)\frac{\sigma^2}{G}
+    +
+    2w\tau^2.
+\]
+Setting the derivative to zero yields
+\[
+    w^\star
+    =
+    \frac{\sigma^2/G}{\sigma^2/G+\tau^2}.
+\]
+Thus the EBPO shrinkage factor is
+\[
+    \mathcal S_q
+    =
+    \frac{\sigma^2/G}{\sigma^2/G+\tau^2},
+\]
+and the corresponding posterior-mean baseline is
+\[
+    V_q^{\oursG}
+    =
+    (1-\mathcal S_q)\mu_{\mathrm{group}}
+    +
+    \mathcal S_q\mu_{\mathrm{glob}}.
+\]
+
+The GRPO baseline corresponds to the unshrunk estimator $\mu_{\mathrm{group}}$, whose MSE is
+\[
+    \operatorname{MSE}(V^{\mathrm{GRPO}})
+    =
+    \mathbb E[(\mu_{\mathrm{group}}-\theta_q)^2]
+    =
+    \frac{\sigma^2}{G}.
+\]
+At the optimal shrinkage weight, the EBPO Bayes risk is
+\[
+    \operatorname{MSE}(V^{\oursG})
+    =
+    R(w^\star)
+    =
+    \frac{(\sigma^2/G)\tau^2}{\sigma^2/G+\tau^2}
+    =
+    (1-\mathcal S_q)\frac{\sigma^2}{G}.
+\]
+Since $\mathcal S_q\in(0,1)$ whenever $\sigma^2/G>0$ and $\tau^2>0$, we have
+\[
+    \operatorname{MSE}(V^{\oursG})
+    <
+    \operatorname{MSE}(V^{\mathrm{GRPO}}).
+\]
+Therefore, under the Gaussian empirical Bayes model, the EBPO baseline achieves strictly lower MSE
+than the local group mean used by GRPO.
+\end{proof}
+
+\begin{proof}[Proof of Corollary~\ref{thm:global_context}]
+From the result of Theorem \ref{thm:non_vanishing}, the raw advantage for a failure in a saturated group ($r_i=0, \forall i$) is:
+$$ \hat{A}^{raw}_{\text{EBPO}}(fail) = -\mathcal{S}\mu_{\text{glob}} $$
+Let us compare two hypothetical regimes represented by the global history:
+\begin{enumerate}
+    \item \textbf{Easy Regime:} The policy generally succeeds, so $\mu_{\text{glob}} \approx 1$.
+    \item \textbf{Hard Regime:} The policy generally fails, so $\mu_{\text{glob}} \approx \epsilon$ (where $0 < \epsilon \ll 1$).
+\end{enumerate}
+Taking the magnitude of the penalty (gradient signal):
+$$ |\hat{A}^{raw}_{\text{easy}}| \propto \mathcal{S}(1) \quad \text{and} \quad |\hat{A}^{raw}_{\text{hard}}| \propto \mathcal{S}(\epsilon) $$
+Clearly, $|\hat{A}^{raw}_{\text{easy}}| \gg |\hat{A}^{raw}_{\text{hard}}|$. 
+EBPO uses the global context to differentiate these scenarios: it applies a strong correction signal when the model fails a task that is statistically ``easy'' (deviating significantly from the prior), but applies a gentle correction when the model fails a task that is ``hard'' (consistent with the prior), thereby preventing catastrophic forgetting or instability on difficult tasks.
+\end{proof}
+
+\iffalse
+\begin{proof}[Proof of Proposition~\ref{prop:entropy_conservation}]
+We invoke the result from \citet{cui2025entropy}, which establishes that the entropy decay is dominated by the covariance between the policy likelihood and the estimated advantage:
+\begin{equation*}
+    \Delta H(\pi) \approx \eta \mathbb{E}_{q \sim \mathcal{D}} \left[ \sum_{o} \text{Cov}_{\pi}\left( \log \pi_\theta(o|q), \hat{A}(o, q) \right) \right]
+\end{equation*}
+
+We analyze the sensitivity of the entropy update to the advantage normalization schemes. Let $\Omega_q = \text{Cov}_{\pi}(\log \pi(o|q), r(o))$ denote the alignment between the policy's log-likelihood and the raw rewards for a specific group $q$.
+
+In GRPO, the advantage is normalized by the local group statistics. The advantage is $\hat{A}_{\text{GRPO}}(o) = \frac{r(o) - \mu_q}{\sigma_q}$. Substituting this into the entropy update:
+\begin{align*}
+    \Delta H_{\text{GRPO}} &\approx \eta \mathbb{E}_{q} \left[ \text{Cov}\left( \log \pi, \frac{r - \mu_q}{\sigma_q} \right) \right] \\
+    &= \eta \mathbb{E}_{q} \left[ \frac{1}{\sigma_q} \text{Cov}( \log \pi, r - \mu_q ) \right] \\
+    &= \eta \mathbb{E}_{q} \left[ \frac{\Omega_q}{\sigma_q} \right] \\
+    & \text{(since $\mu_q$ is constant w.r.t local covariance)}
+\end{align*}
+This update is sensitive to $1/\sigma_q$. For "saturated" prompts where responses are highly similar, $\sigma_q \to 0$, causing the update magnitude to diverge.
+
+In EBPO, the raw advantage is $A^{\text{raw}} = r(o) - V^{EBPO}_q$. The final advantage is standardized over the entire batch:
+\begin{equation*}
+    \hat{A}_{\text{EBPO}}(o) = \frac{A^{\text{raw}} - \mu_{\hat{A}}}{\sigma_{\text{batch}}} = \frac{r(o) - V^{EBPO}_q - \mu_{\hat{A}}}{\sigma_{\text{batch}}}
+\end{equation*}
+where $\mu_{\hat{A}}$ and $\sigma_{\text{batch}}$ are the mean and standard deviation of the raw advantages across the entire batch.
+Substituting this into the entropy update:
+\begin{align*}
+    \Delta H_{\text{EBPO}} &\approx \eta \mathbb{E}_{q} \left[ \text{Cov}\left( \log \pi, \frac{r - V^{EBPO}_q - \mu_{\hat{A}}}{\sigma_{\text{batch}}} \right) \right] \\
+    &= \frac{\eta}{\sigma_{\text{batch}}} \mathbb{E}_{q} \left[ \text{Cov}( \log \pi, r - \underbrace{(V^{EBPO}_q + \mu_{\hat{A}})}_{\text{Constant w.r.t } o} ) \right]
+\end{align*}
+By the translation invariance of covariance ($\text{Cov}(X, Y - C) = \text{Cov}(X, Y)$), the baseline $V^{EBPO}_q$ and the batch mean $\mu_{\hat{A}}$ vanish from the covariance term:
+\begin{equation*}
+    \Delta H_{\text{EBPO}} = \frac{\eta}{\sigma_{\text{batch}}} \mathbb{E}_{q} [ \Omega_q ]
+\end{equation*}
+
+Assuming the covariance term $\Omega_q$ is independent of the group scale $\sigma_q$, the expected entropy reduction is governed by the effective scaling factors:
+$$ \mathbb{E}_q \left[ \frac{1}{\sigma_q} \right] \quad \text{vs} \quad \frac{1}{\sigma_{\text{batch}}} $$
+
+By the Law of Total Variance, the global batch variance $\sigma_{\text{batch}}^2$ decomposes exactly into the expected within-group variance and the between-group variance:
+\begin{equation}
+    \sigma_{\text{batch}}^2 = \mathbb{E}_q[\sigma_q^2] + \text{Var}_q(\mu_q)
+\end{equation}
+Given that the task distribution is heterogeneous (i.e., prompts have varying difficulty), we have $\text{Var}_q(\mu_q) > 0$. This implies a strict inequality for the second moments:
+\begin{equation}
+    \sigma_{\text{batch}} = \sqrt{\mathbb{E}_q[\sigma_q^2] + \text{Var}_q(\mu_q)} > \sqrt{\mathbb{E}_q[\sigma_q^2]} \label{step1}
+\end{equation}
+
+Note that for any random variable $X$, $\sqrt{\mathbb{E}[X^2]} \geq \mathbb{E}[X]$. Letting $X = \sigma_q$:
+\begin{equation}
+    \sqrt{\mathbb{E}_q[\sigma_q^2]} \geq \mathbb{E}_q[\sigma_q] \label{step2}
+\end{equation}
+Combining \eqref{step1} and \eqref{step2}:
+\begin{equation*}
+    \sigma_{\text{batch}} > \mathbb{E}_q[\sigma_q]
+\end{equation*}
+
+Consider the function $f(x) = 1/x$, which is strictly convex for $x > 0$. By Jensen's Inequality:
+\begin{equation*}
+    \mathbb{E}_q \left[ \frac{1}{\sigma_q} \right] \geq \frac{1}{\mathbb{E}_q[\sigma_q]}
+\end{equation*}
+Chaining the inequalities from above yields a strict ordering of the decay coefficients:
+\begin{equation*}
+    \mathbb{E}_q \left[ \frac{1}{\sigma_q} \right] \geq \frac{1}{\mathbb{E}_q[\sigma_q]} > \frac{1}{\sigma_{\text{batch}}}
+\end{equation*}
+Consequently, the entropy reduction for GRPO strictly upper-bounds that of EBPO:
+\begin{equation*}
+    \Delta H_{\text{GRPO}} = \eta \mathbb{E}_q \left[ \frac{\Omega_q}{\sigma_q} \right] > \eta \frac{1}{\sigma_{\text{batch}}} \mathbb{E}_q [\Omega_q] = \Delta H_{\text{EBPO}}
+\end{equation*}
+This proves that the global normalization in EBPO strictly enforces a more conservative policy update bound than GRPO, preventing the excessive entropy collapse associated with small-variance groups.
+\end{proof}
+\fi
+
+\begin{proof}[Proof of Proposition~\ref{prop:entropy_conservation}]
+We invoke the result from \citet{cui2025entropy}, which establishes that the entropy decay is dominated by the covariance between the policy likelihood and the estimated advantage:
+\begin{equation*}
+    \Delta H(\pi) \approx \eta \mathbb{E}_{q \sim \mathcal{D}} \left[ \sum_{o} \text{Cov}_{\pi}\left( \log \pi_\theta(o|q), \hat{A}(o, q) \right) \right]
+\end{equation*}
+
+%We analyze the entropy reduction induced by one policy-gradient update under the covariance
+%approximation used in prior analyses of entropy collapse. For a prompt $q$, let
+%\[
+%    \mu_q = \mathbb{E}_{o\sim \pi(\cdot\mid q)}[r(o)],
+%    \qquad
+%    \sigma_q^2 = \operatorname{Var}_{o\sim \pi(\cdot\mid q)}(r(o)),
+%\]
+%and let $\Omega_q$ denote the prompt-level likelihood--reward covariance term that controls the
+%first-order entropy decrease. We suppress the numerical floor $\epsilon$ in the normalization terms
+%for readability; the same argument holds with $\sigma_q+\epsilon$ and
+%$\sigma_{\mathrm{batch}}+\epsilon$.
+
+We analyze the sensitivity of the entropy update to the advantage normalization schemes. 
+For a prompt $q$, let
+\[
+    \mu_q = \mathbb{E}_{o\sim \pi(\cdot\mid q)}[r(o)],
+    \qquad
+    \sigma_q^2 = \operatorname{Var}_{o\sim \pi(\cdot\mid q)}(r(o)),
+\]
+and let $\Omega_q = \text{Cov}_{\pi}(\log \pi(o|q), r(o))$ denote the alignment between the policy's log-likelihood and the raw rewards for a specific group $q$ that controls the
+first-order entropy decrease. We suppress the numerical floor $\epsilon$ in the normalization terms
+for readability; the same argument holds with $\sigma_q+\epsilon$ and
+$\sigma_{\mathrm{batch}}+\epsilon$.
+
+In GRPO, the advantage is normalized by the local group statistics. The advantage is $\hat{A}_{\text{GRPO}}(o) = \frac{r(o) - \mu_q}{\sigma_q}$. Substituting this into the entropy update:
+\begin{align*}
+    \Delta H_{\text{GRPO}} &\approx \eta \mathbb{E}_{q} \left[ \text{Cov}\left( \log \pi, \frac{r - \mu_q}{\sigma_q} \right) \right] \\
+    &= \eta \mathbb{E}_{q} \left[ \frac{1}{\sigma_q} \text{Cov}( \log \pi, r - \mu_q ) \right] \\
+    &= \eta \mathbb{E}_{q} \left[ \frac{\Omega_q}{\sigma_q} \right] \\
+    & \text{(since $\mu_q$ is constant w.r.t local covariance)}
+\end{align*}
+This update is sensitive to $1/\sigma_q$. For "saturated" prompts where responses are highly similar, $\sigma_q \to 0$, causing the update magnitude to diverge.
+
+In EBPO, the raw advantage is $A^{\text{raw}} = r(o) - V^{EBPO}_q$. The final advantage is standardized over the entire batch:
+\begin{equation*}
+    \hat{A}_{\text{EBPO}}(o) = \frac{A^{\text{raw}} - \mu_{\hat{A}}}{\sigma_{\text{batch}}} = \frac{r(o) - V^{EBPO}_q - \mu_{\hat{A}}}{\sigma_{\text{batch}}}
+\end{equation*}
+where $\mu_{\hat{A}}$ and $\sigma_{\text{batch}}$ are the mean and standard deviation of the raw advantages across the entire batch.
+Substituting this into the entropy update:
+\begin{align*}
+    \Delta H_{\text{EBPO}} &\approx \eta \mathbb{E}_{q} \left[ \text{Cov}\left( \log \pi, \frac{r - V^{EBPO}_q - \mu_{\hat{A}}}{\sigma_{\text{batch}}} \right) \right] \\
+    &= \frac{\eta}{\sigma_{\text{batch}}} \mathbb{E}_{q} \left[ \text{Cov}( \log \pi, r - \underbrace{(V^{EBPO}_q + \mu_{\hat{A}})}_{\text{Constant w.r.t } o} ) \right]
+\end{align*}
+By the translation invariance of covariance ($\text{Cov}(X, Y - C) = \text{Cov}(X, Y)$), the baseline $V^{EBPO}_q$ and the batch mean $\mu_{\hat{A}}$ vanish from the covariance term:
+\begin{equation*}
+    \Delta H_{\text{EBPO}} = \frac{\eta}{\sigma_{\text{batch}}} \mathbb{E}_{q} [ \Omega_q ]
+\end{equation*}
+
+Assuming the covariance term $\Omega_q$ is independent of the group scale $\sigma_q$, the expected entropy reduction is governed by the effective scaling factors:
+$$ \mathbb{E}_q \left[ \frac{1}{\sigma_q} \right] \quad \text{vs} \quad \frac{1}{\sigma_{\text{batch}}} $$
+
+%By the Law of Total Variance, the global batch variance $\sigma_{\text{batch}}^2$ decomposes exactly into the expected within-group variance and the between-group variance:
+%\begin{equation}
+%    \sigma_{\text{batch}}^2 = \mathbb{E}_q[\sigma_q^2] + %\text{Var}_q(\mu_q)
+%\end{equation}
+%Given that the task distribution is heterogeneous (i.e., prompts have varying difficulty), we have $\text{Var}_q(\mu_q) > 0$. This implies a strict inequality for the second moments:
+%\begin{equation}
+%    \sigma_{\text{batch}} = \sqrt{\mathbb{E}_q[\sigma_q^2] + %\text{Var}_q(\mu_q)} > \sqrt{\mathbb{E}_q[\sigma_q^2]} \label{step1}
+%\end{equation}
+By the law of total variance,
+\begin{align}
+    \sigma_{\mathrm{batch}}^2
+    &=
+    \mathbb{E}_q
+    \left[
+        \operatorname{Var}_{o}
+        \left(
+            r(o)-V_q^{\oursG}
+            \mid q
+        \right)
+    \right]
+    +
+    \operatorname{Var}_q
+    \left(
+        \mathbb{E}_{o}
+        \left[
+            r(o)-V_q^{\oursG}
+            \mid q
+        \right]
+    \right) \nonumber \\
+    &=
+    \mathbb{E}_q[\sigma_q^2]
+    +
+    \operatorname{Var}_q
+    \left(
+        \mu_q - V_q^{\oursG}
+    \right).
+    \label{eq:corrected_ebpo_batch_variance}
+\end{align}
+The first term is unchanged because $V_q^{\oursG}$ is constant within a fixed prompt $q$:
+\[
+    \operatorname{Var}_{o}
+    \left(
+        r(o)-V_q^{\oursG}
+        \mid q
+    \right)
+    =
+    \operatorname{Var}_{o}
+    \left(
+        r(o)\mid q
+    \right)
+    =
+    \sigma_q^2.
+\]
+The second term is the between-prompt variance of the raw-advantage mean. Since
+\[
+    \mu_q - V_q^{\oursG}
+    =
+    \mu_q
+    -
+    \left[
+        (1-\mathcal S_q)\mu_q
+        +
+        \mathcal S_q\mu_{\mathrm{glob}}
+    \right]
+    =
+    \mathcal S_q(\mu_q-\mu_{\mathrm{glob}}),
+\]
+we can equivalently write
+\[
+    \sigma_{\mathrm{batch}}^2
+    =
+    \mathbb{E}_q[\sigma_q^2]
+    +
+    \operatorname{Var}_q
+    \left(
+        \mathcal S_q(\mu_q-\mu_{\mathrm{glob}})
+    \right).
+\]
+Thus, whenever the task distribution exhibits nonzero between-prompt variation in the EBPO residual
+$\mu_q-V_q^{\oursG}$,
+\[
+    \operatorname{Var}_q
+    \left(
+        \mu_q - V_q^{\oursG}
+    \right)
+    >
+    0,
+\]
+and hence
+\begin{equation}
+    \sigma_{\mathrm{batch}}
+    =
+    \sqrt{
+        \mathbb{E}_q[\sigma_q^2]
+        +
+        \operatorname{Var}_q(\mu_q - V_q^{\oursG})
+    }
+    >
+    \sqrt{\mathbb{E}_q[\sigma_q^2]}. \label{step1}
+\end{equation}
+
+Note that for any random variable $X$, $\sqrt{\mathbb{E}[X^2]} \geq \mathbb{E}[X]$. Letting $X = \sigma_q$:
+\begin{equation}
+    \sqrt{\mathbb{E}_q[\sigma_q^2]} \geq \mathbb{E}_q[\sigma_q] \label{step2}
+\end{equation}
+Combining \eqref{step1} and \eqref{step2}:
+\begin{equation*}
+    \sigma_{\text{batch}} > \mathbb{E}_q[\sigma_q]
+\end{equation*}
+
+Consider the function $f(x) = 1/x$, which is strictly convex for $x > 0$. By Jensen's Inequality:
+\begin{equation*}
+    \mathbb{E}_q \left[ \frac{1}{\sigma_q} \right] \geq \frac{1}{\mathbb{E}_q[\sigma_q]}
+\end{equation*}
+Chaining the inequalities from above yields a strict ordering of the decay coefficients:
+\begin{equation*}
+    \mathbb{E}_q \left[ \frac{1}{\sigma_q} \right] \geq \frac{1}{\mathbb{E}_q[\sigma_q]} > \frac{1}{\sigma_{\text{batch}}}
+\end{equation*}
+Consequently, the entropy reduction for GRPO strictly upper-bounds that of EBPO:
+\begin{equation*}
+    \Delta H_{\text{GRPO}} = \eta \mathbb{E}_q \left[ \frac{\Omega_q}{\sigma_q} \right] > \eta \frac{1}{\sigma_{\text{batch}}} \mathbb{E}_q [\Omega_q] = \Delta H_{\text{EBPO}}
+\end{equation*}
+This proves that the global normalization in EBPO strictly enforces a more conservative policy update bound than GRPO, preventing the excessive entropy collapse associated with small-variance groups.
+\end{proof}
+
+\begin{proof}[Proof of Proposition~\ref{prop:clustering}]
+We seek to minimize the expected squared error of the prior, defined as $J = \mathbb{E}_{q \sim \mathcal{D}} [(\hat{\mu}_{\text{prior}} - \theta_q)^2]$.
+
+\textbf{Case 1: Random Shuffle (Topic-Agnostic)}
+By Law of Large Numbers, the online estimator converges to the global expectation over the entire dataset. Thus, $\hat{\mu}_{\text{prior}} = \mu_{\text{glob}}$. The loss function becomes the total variance of the difficulty distribution:
+\begin{equation*}
+    J_{\text{shuffle}} = \mathbb{E}_{q} [(\mu_{\text{glob}} - \theta_q)^2] = \text{Var}(\theta_q)
+\end{equation*}
+
+\textbf{Case 2: Topic-Coherent (Topic-Conditional)}
+In the idealized topic-coherent regime (assuming the Welford update is sufficiently fast to adapt to the topic shift), the estimator converges to the conditional expectation of the current cluster. For a prompt $q \in \mathcal{C}_k$, the prior is $\hat{\mu}_{\text{prior}} = \mu_k$. The loss function is the expected variance within each cluster:
+\begin{equation*}
+    J_{\text{coherent}} = \mathbb{E}_{k} \left[ \mathbb{E}_{q \in \mathcal{C}_k} [(\mu_k - \theta_q)^2] \right] = \mathbb{E}_k [\text{Var}(\theta_q \mid k)]
+\end{equation*}
+
+The total variance can be decomposed into the expected conditional variance (within-group) and the variance of the conditional expectations (between-group):
+\begin{equation}
+    \text{Var}(\theta_q) = \mathbb{E}_k [\text{Var}(\theta_q \mid k)] + \text{Var}_k (\mathbb{E}[\theta_q \mid k])
+\end{equation}
+Substituting our loss terms:
+\begin{equation}
+    J_{\text{shuffle}} = J_{\text{coherent}} + \text{Var}_k(\mu_k)
+\end{equation}
+Since the topics have distinct mean difficulties by definition, the between-topic variance is strictly positive: $\text{Var}_k(\mu_k) > 0$.
+Therefore:
+\begin{equation}
+    J_{\text{coherent}} < J_{\text{shuffle}}
+\end{equation}
+The topic-coherent ordering strictly reduces the estimation error of the prior, thereby improving the accuracy of the EBPO baseline.
+\end{proof}
+
+\iffalse
+\begin{proof}[Proof of \Cref{thm:non_vanishing}]
+\textbf{1. GRPO case.} If $r_i=0$ for all $i$, then $\mu_{\text{group}}=0$ and $\hat{A}^{raw}_{\text{GRPO}}(o_i)=0-0=0$, so the gradient $\nabla J=\mathbb{E}[\hat{A}\nabla\log\pi]=0$.
+
+\textbf{2. EBPO case.} With $\mu_{\text{group}}=0$, $V^{\text{EBPO}}=\mathcal{S}\mu_{\text{glob}}$, hence $\hat{A}^{raw}_{\text{EBPO}}(o_i)=-\mathcal{S}\mu_{\text{glob}}<0$ provided $\mathcal{S}>0$ and $\mu_{\text{glob}}>0$. This yields a non-zero negative gradient, penalizing incorrect responses even when no correct response is present.
+\end{proof}
+
+\begin{proof}[Proof of \Cref{thm:mse_stability}]
+$\text{MSE}(V^{\text{GRPO}})=\text{Var}(\mu_{\text{group}})=\sigma^2/G$. The optimal linear estimator $V=(1-w)\mu_{\text{group}}+w\mu_{\text{glob}}$ minimizing the Bayes risk has weight $w^*=\mathcal{S}=\frac{\sigma^2/G}{\sigma^2/G+\tau^2}$, giving
+$\text{MSE}(V^{\text{EBPO}}) = (1-\mathcal{S})\sigma^2/G < \sigma^2/G$ for $\tau^2>0$, $\mathcal{S}\in(0,1)$.
+\end{proof}
+
+\begin{proof}[Proof of \Cref{thm:global_context}]
+From \Cref{thm:non_vanishing}, $\hat{A}^{raw}_{\text{EBPO}}(\text{fail})=-\mathcal{S}\mu_{\text{glob}}$. Comparing easy ($\mu_{\text{glob}}\approx 1$) and hard ($\mu_{\text{glob}}\approx \epsilon$) regimes, $|\hat{A}^{raw}_{\text{easy}}|\propto\mathcal{S}$ vs $|\hat{A}^{raw}_{\text{hard}}|\propto\mathcal{S}\epsilon$, so easy-task failures incur larger penalties.
+\end{proof}
+
+\begin{proof}[Proof of \Cref{prop:entropy_conservation}]
+We invoke \citet{cui2025entropy}: $\Delta H(\pi)\approx\eta\,\mathbb{E}_q[\sum_o\text{Cov}(\log\pi,\hat{A})]$. Let $\Omega_q=\text{Cov}(\log\pi,r)$.
+
+For GRPO, $\hat{A}_{\text{GRPO}}(o)=(r-\mu_q)/\sigma_q$, so $\Delta H_{\text{GRPO}}\approx\eta\mathbb{E}_q[\Omega_q/\sigma_q]$.
+
+For EBPO, $\hat{A}_{\text{EBPO}}(o)=(r-V^{\text{EBPO}}_q-\mu_{\hat{A}})/\sigma_{\text{batch}}$. By translation invariance of covariance, $\Delta H_{\text{EBPO}}=\frac{\eta}{\sigma_{\text{batch}}}\mathbb{E}_q[\Omega_q]$.
+
+Assuming $\Omega_q\perp\sigma_q$, the comparison reduces to $\mathbb{E}_q[1/\sigma_q]$ vs $1/\sigma_{\text{batch}}$. By the law of total variance, $\sigma_{\text{batch}}^2=\mathbb{E}_q[\sigma_q^2]+\text{Var}_q(\mu_q)>\mathbb{E}_q[\sigma_q^2]$, hence $\sigma_{\text{batch}}>\sqrt{\mathbb{E}_q[\sigma_q^2]}\geq\mathbb{E}_q[\sigma_q]$ by Lyapunov. By Jensen's inequality with the convex map $x\mapsto 1/x$, $\mathbb{E}_q[1/\sigma_q]\geq 1/\mathbb{E}_q[\sigma_q]>1/\sigma_{\text{batch}}$. Therefore $\Delta H_{\text{GRPO}}>\Delta H_{\text{EBPO}}$.
+\end{proof}
+
+\begin{proof}[Proof of \Cref{prop:clustering}]
+Let $J=\mathbb{E}_q[(\hat{\mu}_{\text{prior}}-\theta_q)^2]$.
+
+\textbf{Random shuffle:} $\hat{\mu}_{\text{prior}}\to\mu_{\text{glob}}$ by LLN; $J_{\text{shuffle}}=\text{Var}(\theta_q)$.
+
+\textbf{Topic-coherent:} For $q\in\mathcal{C}_k$, $\hat{\mu}_{\text{prior}}=\mu_k$; $J_{\text{coherent}}=\mathbb{E}_k[\text{Var}(\theta_q\mid k)]$.
+
+By the law of total variance, $\text{Var}(\theta_q)=\mathbb{E}_k[\text{Var}(\theta_q\mid k)]+\text{Var}_k(\mu_k)$, so $J_{\text{shuffle}}=J_{\text{coherent}}+\text{Var}_k(\mu_k)>J_{\text{coherent}}$ whenever clusters have distinct mean difficulties.
+\end{proof}
+\fi
+
+\section{Discussion on reward range}
+\label{sec:discussion}
+
+% \paragraph{EBPO vs.\ Single-Stream Policy Optimization (SPO).}
+% SPO and EBPO both seek to stabilize RL training without a heavy value model, but operate on different mechanisms. EBPO retains the group-based GRPO structure and corrects it with an EB shrinkage baseline that mixes the local group mean with a global prior. SPO instead abandons groups, returning to a single-stream policy-gradient formulation with a per-prompt persistent value tracker plus global batch normalization. Empirically (Section \ref{sec:results}) EBPO outperforms SPO on average across both 8B and 14B scales.
+
+% \paragraph{EBPO vs.\ BNPO-style adaptive normalization.}
+% BNPO-like methods adopt a Beta distribution to model mean rewards and target gradient-variance reduction via an adaptive normalization factor. EBPO and BNPO diverge in two fundamental ways. First, EBPO applies shift via shrinkage to the baseline (advantage numerator) to prevent collapse in saturated groups, while BNPO applies scaling via an adaptive normalizer (advantage denominator) based on the policy distribution's variance. Second, EBPO uses cluster-aware running statistics that incorporate prompt difficulty over time and prevent instantaneous batch saturation, while BNPO estimates parameters from the current batch only. In our experiments the GRPO+BN ablation (\Cref{tab:bn_ablation}, which captures the scaling intuition without shrinkage) underperforms full EBPO, supporting the importance of the shift-via-shrinkage step.
+
+While the main narrative focuses on binary rewards, the Gaussian EBPO formulation extends directly to continuous shaped rewards: if shaped scalars are roughly Gaussian, the conjugate update is exact rather than a relaxation. The shrinkage mechanism's stabilization guarantees hold as long as variance is bounded.
+
+\section{Limitations and Discussion of Practical Throughput}
+EBPO is, by nature, group-based; it inherits the synchronization and rollout-cost structure of group-based RLVR. Sample efficiency in this paper refers to two specific claims: (i) EBPO with small group sizes does not lead to performance degradation, and (ii) EBPO at small $G$ matches or beats GRPO at large $G$ (see \Cref{tab:group_size_results}). Wall-clock throughput / total rollout cost is determined by the rollout and reward-evaluation pipeline rather than by the EB calculation itself, whose per-step cost is negligible.
+
+\newpage
+\input{checklist.tex}
+
+\end{document}

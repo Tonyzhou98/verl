@@ -146,6 +146,8 @@ class AdvantageEstimator(str, Enum):
     GRPO_BN = "grpo_bn"
     RLOO_VECTORIZED = "rloo_vectorized"
     GRPO_VECTORIZED = "grpo_vectorized"
+    SHRINKAGE_JS = "shrinkage_js"
+    BNPO = "bnpo"
 
 
 ADV_ESTIMATOR_REGISTRY: dict[str, Any] = {}
@@ -408,6 +410,160 @@ def compute_ebpo_outcome_advantage(
             advantages = advantages.unsqueeze(-1) * response_mask
 
         return advantages, advantages
+
+
+@register_adv_est(AdvantageEstimator.SHRINKAGE_JS)
+def compute_shrinkage_js_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """James-Stein shrinkage baseline (Zeng et al., "Shrinking the Variance:
+    Shrinkage Baselines for RLVR").
+
+    Uses the unbiased leave-one-out (JS2) construction:
+        mu_i^{-j}   = LOO prompt mean (excludes response j)
+        mubar_{-i}  = LOO batch mean over prompt means (excludes prompt i)
+        lambda_i    = ((n-1)/n) * v_{-i} / (v_{-i} + s_{-i})
+        b_i^j       = (1 - lambda_i) mu_i^{-j} + lambda_i mubar_{-i}
+        A_i^j       = r_i^j - b_i^j          (no std normalization; RLOO-style)
+
+    where v_{-i} is the LOO expected per-prompt estimator variance and s_{-i} the
+    LOO across-prompt dispersion of prompt means. The baseline is independent of
+    r_i^j, so the resulting policy gradient is unbiased.
+    """
+    scores = token_level_rewards.sum(dim=-1)
+
+    id2score = defaultdict(list)
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            id2score[index[i]].append(scores[i])
+
+        prompts = list(id2score.keys())
+        n = len(prompts)
+
+        # Per-prompt mean and within-prompt variance term wvar = sample_var / m
+        # (= (1/(m(m-1))) sum_j (r - mu)^2).
+        mu = {}
+        wvar = {}
+        for idx in prompts:
+            s = torch.stack(id2score[idx])
+            m = s.numel()
+            mu_i = s.mean()
+            mu[idx] = mu_i
+            if m > 1:
+                sample_var = ((s - mu_i) ** 2).sum() / (m - 1)
+                wvar[idx] = sample_var / m
+            else:
+                wvar[idx] = scores.new_zeros(())
+
+        sum_mu = sum(mu.values())
+        sum_mu2 = sum((v * v) for v in mu.values())
+        sum_wvar = sum(wvar.values())
+
+        # Precompute per-prompt shrinkage coefficient and LOO batch mean.
+        lam = {}
+        mubar_loo = {}
+        for idx in prompts:
+            if n > 1:
+                mbar = (sum_mu - mu[idx]) / (n - 1)
+                # LOO across-prompt dispersion via sum-of-squares identity:
+                ss_excl = sum_mu2 - mu[idx] * mu[idx]
+                s_loo = (ss_excl - (n - 1) * mbar * mbar) / (n - 1)
+                s_loo = torch.clamp(s_loo, min=0.0)
+                v_loo = (sum_wvar - wvar[idx]) / (n - 1)
+                denom = v_loo + s_loo
+                if denom > epsilon:
+                    lam[idx] = ((n - 1) / n) * (v_loo / denom)
+                else:
+                    lam[idx] = scores.new_zeros(())
+                mubar_loo[idx] = mbar
+            else:
+                lam[idx] = scores.new_zeros(())
+                mubar_loo[idx] = mu[idx]
+
+        advantages = torch.zeros_like(scores)
+        for i in range(bsz):
+            idx = index[i]
+            m = len(id2score[idx])
+            r = scores[i]
+            if n > 1 and m > 1:
+                mu_loo_j = (m * mu[idx] - r) / (m - 1)
+                baseline = (1 - lam[idx]) * mu_loo_j + lam[idx] * mubar_loo[idx]
+            else:
+                baseline = mu[idx]
+            advantages[i] = r - baseline
+
+        advantages = advantages.unsqueeze(-1) * response_mask
+
+    return advantages, advantages
+
+
+@register_adv_est(AdvantageEstimator.BNPO)
+def compute_bnpo_outcome_advantage(
+    token_level_rewards: torch.Tensor,
+    response_mask: torch.Tensor,
+    index: np.ndarray,
+    epsilon: float = 1e-6,
+    norm_adv_by_std_in_grpo: bool = True,
+    config: Optional[AlgoConfig] = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """BNPO: Beta Normalization Policy Optimization (Xiao et al., 2025).
+
+        A(q, o) = (R(q, o) - p(q)) / f_N(p(q); alpha, beta)
+
+    where p(q) is the per-prompt mean reward (baseline) and f_N is a Beta pdf
+    whose parameters adapt to the batch distribution of {p(q)} via
+    method-of-moments (a, b) and the variance-minimizing choice
+    alpha = 1 + a/3, beta = 1 + b/3. Reduces to REINFORCE-with-baseline at
+    (alpha, beta) = (1, 1) and to GRPO at (3/2, 3/2).
+    """
+    scores = token_level_rewards.sum(dim=-1)
+
+    id2score = defaultdict(list)
+    with torch.no_grad():
+        bsz = scores.shape[0]
+        for i in range(bsz):
+            id2score[index[i]].append(scores[i])
+
+        prompts = list(id2score.keys())
+        pq = {idx: torch.stack(id2score[idx]).mean() for idx in prompts}
+        p_vals = torch.stack([pq[idx] for idx in prompts])
+
+        mean_p = p_vals.mean()
+        var_p = p_vals.var(unbiased=True) if p_vals.numel() > 1 else scores.new_zeros(())
+        mean_c = torch.clamp(mean_p, epsilon, 1 - epsilon)
+
+        # Method-of-moments for the data Beta(a, b); only valid when overdispersion
+        # is admissible, else fall back to REINFORCE (alpha = beta = 1).
+        max_var = mean_c * (1 - mean_c)
+        if var_p > epsilon and var_p < max_var:
+            concentration = (max_var / var_p) - 1.0
+            a = concentration * mean_c
+            b = concentration * (1 - mean_c)
+        else:
+            a = scores.new_zeros(())
+            b = scores.new_zeros(())
+
+        alpha = 1.0 + a / 3.0
+        beta = 1.0 + b / 3.0
+        log_beta_fn = torch.lgamma(alpha) + torch.lgamma(beta) - torch.lgamma(alpha + beta)
+
+        advantages = torch.zeros_like(scores)
+        for i in range(bsz):
+            idx = index[i]
+            p = torch.clamp(pq[idx], epsilon, 1 - epsilon)
+            log_pdf = (alpha - 1) * torch.log(p) + (beta - 1) * torch.log(1 - p) - log_beta_fn
+            f_norm = torch.clamp(torch.exp(log_pdf), min=epsilon)
+            advantages[i] = (scores[i] - pq[idx]) / f_norm
+
+        advantages = advantages.unsqueeze(-1) * response_mask
+
+    return advantages, advantages
 
 
 class SPOTracker:

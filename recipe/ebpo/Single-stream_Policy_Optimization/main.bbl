@@ -1,0 +1,235 @@
+\begin{thebibliography}{45}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Ahmadian et~al.(2024)Ahmadian, Cremer, Gall{\'e}, Fadaee, Kreutzer, Pietquin, {\"U}st{\"u}n, and Hooker]{RLOO}
+Arash Ahmadian, Chris Cremer, Matthias Gall{\'e}, Marzieh Fadaee, Julia Kreutzer, Olivier Pietquin, Ahmet {\"U}st{\"u}n, and Sara Hooker.
+\newblock Back to basics: Revisiting reinforce style optimization for learning from human feedback in {LLMs}.
+\newblock \emph{arXiv preprint arXiv:2402.14740}, 2024.
+
+\bibitem[An et~al.(2025)An, Xie, Li, Li, Zhang, Gong, Zhong, Xu, Qiu, Wang, and Kong]{Polaris2025}
+Chenxin An, Zhihui Xie, Xiaonan Li, Lei Li, Jun Zhang, Shansan Gong, Ming Zhong, Jingjing Xu, Xipeng Qiu, Mingxuan Wang, and Lingpeng Kong.
+\newblock {POLARIS}: A post-training recipe for scaling reinforcement learning on advanced reasoning models, 2025.
+\newblock URL \url{https://hkunlp.github.io/blog/2025/Polaris}.
+
+\bibitem[Andrychowicz et~al.(2020)Andrychowicz, Raichuk, Sta{\'n}czyk, Orsini, Girgin, Marinier, Hussenot, Geist, Pietquin, Michalski, et~al.]{andrychowicz2020matters}
+Marcin Andrychowicz, Anton Raichuk, Piotr Sta{\'n}czyk, Manu Orsini, Sertan Girgin, Raphael Marinier, L{\'e}onard Hussenot, Matthieu Geist, Olivier Pietquin, Marcin Michalski, et~al.
+\newblock What matters in on-policy reinforcement learning? {A} large-scale empirical study.
+\newblock \emph{arXiv preprint arXiv:2006.05990}, 2020.
+
+\bibitem[Balashankar et~al.(2024)Balashankar, Sun, Berant, Eisenstein, Collins, Hutter, Lee, Nagpal, Prost, Sinha, et~al.]{balashankar2024infalign}
+Ananth Balashankar, Ziteng Sun, Jonathan Berant, Jacob Eisenstein, Michael Collins, Adrian Hutter, Jong Lee, Chirag Nagpal, Flavien Prost, Aradhana Sinha, et~al.
+\newblock {InfAlign}: {Inference}-aware language model alignment.
+\newblock \emph{arXiv preprint arXiv:2412.19792}, 2024.
+
+\bibitem[Balunovi{\'c} et~al.(2025)Balunovi{\'c}, Dekoninck, Petrov, Jovanovi{\'c}, and Vechev]{matharena}
+Mislav Balunovi{\'c}, Jasper Dekoninck, Ivo Petrov, Nikola Jovanovi{\'c}, and Martin Vechev.
+\newblock {MathArena}: Evaluating {LLMs} on uncontaminated math competitions.
+\newblock \emph{arXiv preprint arXiv:2505.23281}, 2025.
+
+\bibitem[Brantley et~al.(2025)Brantley, Chen, Gao, Lee, Sun, Zhan, and Zhang]{brantley2025accelerating}
+Kiant{\'e} Brantley, Mingyu Chen, Zhaolin Gao, Jason~D Lee, Wen Sun, Wenhao Zhan, and Xuezhou Zhang.
+\newblock Accelerating {RL} for {LLM} reasoning with optimal advantage regression.
+\newblock \emph{arXiv preprint arXiv:2505.20686}, 2025.
+
+\bibitem[Chen et~al.(2021)Chen, Tworek, Jun, Yuan, Pinto, Kaplan, Edwards, Burda, Joseph, Brockman, et~al.]{chen2021evaluating}
+Mark Chen, Jerry Tworek, Heewoo Jun, Qiming Yuan, Henrique Ponde De~Oliveira Pinto, Jared Kaplan, Harri Edwards, Yuri Burda, Nicholas Joseph, Greg Brockman, et~al.
+\newblock Evaluating large language models trained on code.
+\newblock \emph{arXiv preprint arXiv:2107.03374}, 2021.
+
+\bibitem[Chen et~al.(2025{\natexlab{a}})Chen, Yang, Liu, Lee, Xu, Shoeybi, Catanzaro, and Ping]{chen2025acereason}
+Yang Chen, Zhuolin Yang, Zihan Liu, Chankyu Lee, Peng Xu, Mohammad Shoeybi, Bryan Catanzaro, and Wei Ping.
+\newblock {Acereason-Nemotron}: Advancing math and code reasoning through reinforcement learning.
+\newblock \emph{arXiv preprint arXiv:2505.16400}, 2025{\natexlab{a}}.
+
+\bibitem[Chen et~al.(2025{\natexlab{b}})Chen, Ma, Zhuang, Nie, Zou, Liu, Green, Patel, Meng, Su, et~al.]{chen2025browsecomp}
+Zijian Chen, Xueguang Ma, Shengyao Zhuang, Ping Nie, Kai Zou, Andrew Liu, Joshua Green, Kshama Patel, Ruoxi Meng, Mingyi Su, et~al.
+\newblock {BrowseComp-Plus}: A more fair and transparent evaluation benchmark of deep-research agent.
+\newblock \emph{arXiv preprint arXiv:2508.06600}, 2025{\natexlab{b}}.
+
+\bibitem[Cui et~al.(2025)Cui, Zhang, Chen, Yuan, Wang, Zuo, Li, Fan, Chen, Chen, et~al.]{cui2025entropy}
+Ganqu Cui, Yuchen Zhang, Jiacheng Chen, Lifan Yuan, Zhi Wang, Yuxin Zuo, Haozhan Li, Yuchen Fan, Huayu Chen, Weize Chen, et~al.
+\newblock The entropy mechanism of reinforcement learning for reasoning language models.
+\newblock \emph{arXiv preprint arXiv:2505.22617}, 2025.
+
+\bibitem[DeepSeek(2025)]{R1}
+Team DeepSeek.
+\newblock {DeepSeek-R1} incentivizes reasoning in {LLMs} through reinforcement learning.
+\newblock \emph{Nature}, 645:\penalty0 633--638, 2025.
+
+\bibitem[Espeholt et~al.(2018)Espeholt, Soyer, Munos, Simonyan, Mnih, Ward, Doron, Firoiu, Harley, Dunning, et~al.]{espeholt2018impala}
+Lasse Espeholt, Hubert Soyer, Remi Munos, Karen Simonyan, Vlad Mnih, Tom Ward, Yotam Doron, Vlad Firoiu, Tim Harley, Iain Dunning, et~al.
+\newblock {IMPALA}: Scalable distributed deep-{RL} with importance weighted actor-learner architectures.
+\newblock In \emph{International conference on machine learning}, pages 1407--1416. PMLR, 2018.
+
+\bibitem[Feng et~al.(2025)Feng, Huang, Qu, Zhang, Qin, Zhong, Jiang, Chi, and Zhong]{feng2025retool}
+Jiazhan Feng, Shijue Huang, Xingwei Qu, Ge~Zhang, Yujia Qin, Baoquan Zhong, Chengquan Jiang, Jinxin Chi, and Wanjun Zhong.
+\newblock {ReTool}: Reinforcement learning for strategic tool use in {LLMs}.
+\newblock \emph{arXiv preprint arXiv:2504.11536}, 2025.
+
+\bibitem[Fu et~al.(2025)Fu, Wang, Tian, and Zhao]{fu2025deep}
+Yichao Fu, Xuewei Wang, Yuandong Tian, and Jiawei Zhao.
+\newblock Deep think with confidence.
+\newblock \emph{arXiv preprint arXiv:2508.15260}, 2025.
+
+\bibitem[Gao et~al.(2025)Gao, Fu, Xie, Xu, He, Mei, Zhu, and Wu]{gao2025beyond}
+Jiaxuan Gao, Wei Fu, Minyang Xie, Shusheng Xu, Chuyi He, Zhiyu Mei, Banghua Zhu, and Yi~Wu.
+\newblock Beyond ten turns: Unlocking long-horizon agentic search with large-scale asynchronous {RL}.
+\newblock \emph{arXiv preprint arXiv:2508.07976}, 2025.
+
+\bibitem[Greensmith et~al.(2004)Greensmith, Bartlett, and Baxter]{greensmith2004variance}
+Evan Greensmith, Peter~L Bartlett, and Jonathan Baxter.
+\newblock Variance reduction techniques for gradient estimates in reinforcement learning.
+\newblock \emph{Journal of Machine Learning Research}, 5\penalty0 (Nov):\penalty0 1471--1530, 2004.
+
+\bibitem[Hao et~al.(2025)Hao, Dong, Wu, Huang, Chi, and Wei]{hao2025policy}
+Yaru Hao, Li~Dong, Xun Wu, Shaohan Huang, Zewen Chi, and Furu Wei.
+\newblock On-policy {RL} with optimal reward baseline.
+\newblock \emph{arXiv preprint arXiv:2505.23585}, 2025.
+
+\bibitem[He et~al.(2025)He, Liu, Liu, Yan, Wang, Cheng, Zhang, Zhang, Xu, Shen, et~al.]{he2025skywork}
+Jujie He, Jiacai Liu, Chris~Yuhao Liu, Rui Yan, Chaojie Wang, Peng Cheng, Xiaoyu Zhang, Fuxiang Zhang, Jiacheng Xu, Wei Shen, et~al.
+\newblock {SkyWork} {Open Reasoner} 1 technical report.
+\newblock \emph{arXiv preprint arXiv:2505.22312}, 2025.
+
+\bibitem[Hu et~al.(2025)Hu, Liu, Xu, and Shen]{RFplusplus}
+Jian Hu, Jason~Klein Liu, Haotian Xu, and Wei Shen.
+\newblock {REINFORCE++}: An efficient {RLHF} algorithm with robustness to both prompt and reward models.
+\newblock \emph{arXiv preprint arXiv:2501.03262}, 2025.
+
+\bibitem[Kimi(2025)]{team2025kimi}
+Team Kimi.
+\newblock Kimi {K1.5}: Scaling reinforcement learning with {LLMs}.
+\newblock \emph{arXiv preprint arXiv:2501.12599}, 2025.
+
+\bibitem[Lambert et~al.(2024)Lambert, Morrison, Pyatkin, Huang, Ivison, Brahman, Miranda, Liu, Dziri, Lyu, et~al.]{RLVR}
+Nathan Lambert, Jacob Morrison, Valentina Pyatkin, Shengyi Huang, Hamish Ivison, Faeze Brahman, Lester James~V Miranda, Alisa Liu, Nouha Dziri, Shane Lyu, et~al.
+\newblock Tulu 3: Pushing frontiers in open language model post-training.
+\newblock \emph{arXiv preprint arXiv:2411.15124}, 2024.
+
+\bibitem[Lin and Xu(2025)]{aspo}
+Heng Lin and Zhongwen Xu.
+\newblock Understanding {Tool-Integrated Reasoning}.
+\newblock \emph{arXiv preprint arXiv:2508.19201}, 2025.
+
+\bibitem[Liu et~al.(2025{\natexlab{a}})Liu, Sims, Duan, Chen, Yang, Lee, and Lin]{gem}
+Zichen Liu, Anya Sims, Keyu Duan, Changyu Chen, Diyi Yang, Wee~Sun Lee, and Min Lin.
+\newblock {GEM}: A gym for generalist {LLMs}, 2025{\natexlab{a}}.
+\newblock URL \url{https://axon-rl.notion.site/gem}.
+
+\bibitem[Liu et~al.(2025{\natexlab{b}})Liu, Yang, Chen, Lee, Shoeybi, Catanzaro, and Ping]{liu2025acereason11}
+Zihan Liu, Zhuolin Yang, Yang Chen, Chankyu Lee, Mohammad Shoeybi, Bryan Catanzaro, and Wei Ping.
+\newblock {AceReason-Nemotron 1.1}: Advancing math and code reasoning through {SFT} and {RL} synergy.
+\newblock \emph{arXiv preprint arXiv:2506.13284}, 2025{\natexlab{b}}.
+
+\bibitem[Liu et~al.(2025{\natexlab{c}})Liu, Liu, He, Wang, Liu, Pan, Hu, Xiong, Huang, Hu, et~al.]{liu2025part}
+Zihe Liu, Jiashun Liu, Yancheng He, Weixun Wang, Jiaheng Liu, Ling Pan, Xinyu Hu, Shaopan Xiong, Ju~Huang, Jian Hu, et~al.
+\newblock {Part I}: Tricks or traps? {A} deep dive into {RL} for {LLM} reasoning.
+\newblock \emph{arXiv preprint arXiv:2508.08221}, 2025{\natexlab{c}}.
+
+\bibitem[Luo et~al.(2025)Luo, Tan, Wong, Shi, Tang, Roongta, Cai, Luo, Li, Popa, and Stoica]{deepscaler2025}
+Michael Luo, Sijun Tan, Justin Wong, Xiaoxiang Shi, William~Y. Tang, Manan Roongta, Colin Cai, Jeffrey Luo, Li~Erran Li, Raluca~Ada Popa, and Ion Stoica.
+\newblock {DeepScaleR}: Surpassing o1-{Preview} with a {1.5B} model by scaling {RL}.
+\newblock \url{https://pretty-radio-b75.notion.site/DeepScaleR-Surpassing-O1-Preview-with-a-1-5B-Model-by-Scaling-RL-19681902c1468005bed8ca303013a4e2}, 2025.
+\newblock Notion Blog.
+
+\bibitem[MiniMax(2025)]{CISPO}
+Team MiniMax.
+\newblock {MiniMax-M1}: Scaling test-time compute efficiently with lightning attention.
+\newblock \emph{arXiv preprint arXiv:2506.13585}, 2025.
+
+\bibitem[Qu et~al.(2025)Qu, Wang, Mao, Hu, Ommer, and Ji]{qu2025can}
+Yun Qu, Qi~Wang, Yixiu Mao, Vincent~Tao Hu, Bj{\"o}rn Ommer, and Xiangyang Ji.
+\newblock Can prompt difficulty be online predicted for accelerating {RL} finetuning of reasoning models?
+\newblock \emph{arXiv preprint arXiv:2507.04632}, 2025.
+
+\bibitem[Qwen(2025)]{qwen3}
+Team Qwen.
+\newblock Qwen3 technical report.
+\newblock \emph{arXiv preprint arXiv:2505.09388}, 2025.
+
+\bibitem[Schaul et~al.(2015)Schaul, Quan, Antonoglou, and Silver]{schaul2015prioritized}
+Tom Schaul, John Quan, Ioannis Antonoglou, and David Silver.
+\newblock Prioritized experience replay.
+\newblock \emph{arXiv preprint arXiv:1511.05952}, 2015.
+
+\bibitem[Schulman et~al.(2017)Schulman, Wolski, Dhariwal, Radford, and Klimov]{PPO}
+John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov.
+\newblock Proximal policy optimization algorithms.
+\newblock \emph{arXiv preprint arXiv:1707.06347}, 2017.
+
+\bibitem[Seed(2025)]{seed1.5}
+Team Seed.
+\newblock {Seed1.5-thinking}: Advancing superb reasoning models with reinforcement learning.
+\newblock \emph{arXiv preprint arXiv:2504.13914}, 2025.
+
+\bibitem[Shang et~al.(2025)Shang, Liu, Zhu, Zhang, Xu, Guan, Zhang, Dong, Zhou, Zhang, et~al.]{shang2025rstar2}
+Ning Shang, Yifei Liu, Yi~Zhu, Li~Lyna Zhang, Weijiang Xu, Xinyu Guan, Buze Zhang, Bingcheng Dong, Xudong Zhou, Bowen Zhang, et~al.
+\newblock {rStar2-Agent: Agentic Reasoning Technical Report}.
+\newblock \emph{arXiv preprint arXiv:2508.20722}, 2025.
+
+\bibitem[Shao et~al.(2024)Shao, Wang, Zhu, Xu, Song, Bi, Zhang, Zhang, Li, Wu, et~al.]{GRPO}
+Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK~Li, Yang Wu, et~al.
+\newblock {DeepSeekMath}: Pushing the limits of mathematical reasoning in open language models.
+\newblock \emph{arXiv preprint arXiv:2402.03300}, 2024.
+
+\bibitem[Sheng et~al.(2024)Sheng, Zhang, Ye, Wu, Zhang, Zhang, Peng, Lin, and Wu]{verl}
+Guangming Sheng, Chi Zhang, Zilingfeng Ye, Xibin Wu, Wang Zhang, Ru~Zhang, Yanghua Peng, Haibin Lin, and Chuan Wu.
+\newblock {HybridFlow}: A flexible and efficient {RLHF} framework.
+\newblock \emph{arXiv preprint arXiv: 2409.19256}, 2024.
+
+\bibitem[Sutton and Barto(2018)]{rlbook}
+Richard~S Sutton and Andrew~G Barto.
+\newblock \emph{Reinforcement learning: An introduction}.
+\newblock MIT press, 2018.
+
+\bibitem[Wang et~al.(2023)Wang, Wei, Schuurmans, Le, Chi, Narang, Chowdhery, and Zhou]{maj}
+Xuezhi Wang, Jason Wei, Dale Schuurmans, Quoc~V Le, Ed~H Chi, Sharan Narang, Aakanksha Chowdhery, and Denny Zhou.
+\newblock Self-consistency improves chain of thought reasoning in language models.
+\newblock In \emph{The Eleventh International Conference on Learning Representations (ICLR)}, 2023.
+\newblock URL \url{https://openreview.net/forum?id=ySyClPaTKAq}.
+
+\bibitem[Wang et~al.(2025)Wang, Zhou, Li, and Liu]{wang2025octothinker}
+Zengzhi Wang, Fan Zhou, Xuefeng Li, and Pengfei Liu.
+\newblock {OctoThinker}: Mid-training incentivizes reinforcement learning scaling.
+\newblock \emph{arXiv preprint arXiv:2506.20512}, 2025.
+
+\bibitem[Williams(1992)]{REINFORCE}
+Ronald~J Williams.
+\newblock Simple statistical gradient-following algorithms for connectionist reinforcement learning.
+\newblock \emph{Machine learning}, 8\penalty0 (3):\penalty0 229--256, 1992.
+
+\bibitem[Wu et~al.(2025)Wu, Wang, Tang, Ding, Helenowski, Tan, Xu, Gowda, Chen, Zhu, et~al.]{wu2025llamarl}
+Bo~Wu, Sid Wang, Yunhao Tang, Jia Ding, E1yk Helenowski, Liang Tan, Tengyu Xu, Tushar Gowda, Zhengxing Chen, Chen Zhu, et~al.
+\newblock {LlamaRL}: A distributed asynchronous reinforcement learning framework for efficient large-scale {LLM} training.
+\newblock \emph{arXiv preprint arXiv:2505.24034}, 2025.
+
+\bibitem[Xu et~al.(2025)Xu, Wang, Li, Yu, Wang, Fu, and Yang]{xu2025agents}
+Zhongwen Xu, Xianliang Wang, Siyi Li, Tao Yu, Liang Wang, Qiang Fu, and Wei Yang.
+\newblock Agents play thousands of {3D} video games.
+\newblock \emph{arXiv preprint arXiv:2503.13356}, 2025.
+
+\bibitem[Yu et~al.(2025)Yu, Zhang, Zhu, Yuan, Zuo, Yue, Dai, Fan, Liu, Liu, et~al.]{DAPO}
+Qiying Yu, Zheng Zhang, Ruofei Zhu, Yufeng Yuan, Xiaochen Zuo, Yu~Yue, Weinan Dai, Tiantian Fan, Gaohong Liu, Lingjun Liu, et~al.
+\newblock {DAPO}: An open-source {LLM} reinforcement learning system at scale.
+\newblock \emph{arXiv preprint arXiv:2503.14476}, 2025.
+
+\bibitem[Zheng et~al.(2025{\natexlab{a}})Zheng, Liu, Li, Chen, Yu, Gao, Dang, Liu, Men, Yang, et~al.]{GSPO}
+Chujie Zheng, Shixuan Liu, Mingze Li, Xiong-Hui Chen, Bowen Yu, Chang Gao, Kai Dang, Yuqiong Liu, Rui Men, An~Yang, et~al.
+\newblock Group sequence policy optimization.
+\newblock \emph{arXiv preprint arXiv:2507.18071}, 2025{\natexlab{a}}.
+
+\bibitem[Zheng et~al.(2025{\natexlab{b}})Zheng, Zhou, Bartoldson, Kailkhura, Lai, Zhao, and Chen]{zheng2025act}
+Haizhong Zheng, Yang Zhou, Brian~R Bartoldson, Bhavya Kailkhura, Fan Lai, Jiawei Zhao, and Beidi Chen.
+\newblock Act only when it pays: Efficient reinforcement learning for {LLM} reasoning via selective rollouts.
+\newblock \emph{arXiv preprint arXiv:2506.02177}, 2025{\natexlab{b}}.
+
+\bibitem[Zhipu(2025)]{zeng2025glm}
+Team Zhipu.
+\newblock {GLM-4.5}: Agentic, reasoning, and coding ({ARC}) foundation models.
+\newblock 2025.
+
+\end{thebibliography}

@@ -1,0 +1,222 @@
+\documentclass[11pt, letterpaper]{arxiv}
+\usepackage[all]{hypcap}
+\usepackage[comma,numbers,sort,compress]{natbib}
+
+\usepackage{hyperref}[citecolor=magenta]
+\usepackage[capitalize,noabbrev]{cleveref}
+\bibliographystyle{plainnat}
+\usepackage{xurl}
+
+\hypersetup{
+    colorlinks = true,
+    citecolor = {magenta},
+}
+
+
+\usepackage{microtype}
+\usepackage{subcaption}
+\usepackage{booktabs} %
+
+\usepackage[noend]{algpseudocode}
+\usepackage{algorithm}
+\usepackage{mathrsfs}
+\usepackage{setspace}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{mathtools}
+\usepackage{amsthm}
+\setlength\parindent{0pt}
+
+\usepackage[inkscapelatex=false]{svg}
+
+\setboolean{logo}{true}
+
+\usepackage[most,skins,theorems]{tcolorbox}
+\tcbset{
+  aibox/.style={
+    width=\linewidth,
+    top=7pt,
+    bottom=2pt,
+    colback=blue!6!white,
+    colframe=black,
+    colbacktitle=black,
+    enhanced,
+    center,
+    attach boxed title to top left={yshift=-0.1in,xshift=0.15in},
+    boxed title style={boxrule=0pt,colframe=white,},
+  }
+}
+\newtcolorbox{AIbox}[2][]{aibox,title=#2,#1}
+\newcommand\myeq{\stackrel{\mathclap{\small\mbox{def}}}{=}}
+
+\usepackage{wrapfig}
+\definecolor{lightblue}{rgb}{0.22,0.45,0.70}%
+\usepackage{tabularx}
+\usepackage{multirow}
+\usepackage{adjustbox}
+
+
+
+
+
+
+\definecolor{rliableolive}{HTML}{BBCC33}
+\definecolor{rliableblue}{HTML}{77AADD}
+\definecolor{rliablered}{HTML}{EE8866}
+
+
+\usepackage{crossreftools}
+\pdfstringdefDisableCommands{%
+    \let\Cref\crtCref
+    \let\cref\crtcref
+}
+\newcommand{\creftitle}[1]{\crtcref{#1}}
+\usepackage[suppress]{color-edits}
+\newcommand{\tx}[1]{\txcomment{#1}}
+\usepackage{dsfont}
+\usepackage{nicefrac}
+\newtcolorbox{analysisbox}[1][]{
+    enhanced jigsaw,
+    colback=white,
+    colframe=blue!75!black,
+    fonttitle=\bfseries,
+    boxsep=5pt,
+    left=5pt,
+    right=5pt,
+    top=5pt,
+    bottom=5pt,
+    title=#1,
+}
+\definecolor{editInitialResponse}{RGB}{255, 235, 156} %
+\definecolor{editBacktrack}{RGB}{0, 0, 139} %
+\definecolor{editRevisedResponse}{RGB}{255, 182, 193} %
+
+\newcommand{\mistake}[1]{\sethlcolor{highlightmistake}\hl{#1}\sethlcolor{yellow}}
+\newcommand{\correct}[1]{\sethlcolor{highlightcorrect}\hl{#1}\sethlcolor{yellow}}
+\newcommand{\InitialResponse}[1]{\sethlcolor{editInitialResponse}\hl{#1}\sethlcolor{yellow}}
+\newcommand{\Backtrack}[1]{\sethlcolor{editInitialResponse}\hl{#1}\sethlcolor{yellow}} %
+\newcommand{\RevisedResponse}[1]{\sethlcolor{editInitialResponse}\hl{#1}\sethlcolor{yellow}} %
+\newcommand{\cmark}{\ding{51}}%
+\newcommand{\xmark}{\ding{55}}%
+\usepackage{pifont}
+\usepackage{soul}
+\definecolor{highlightmistake}{RGB}{255, 179, 179} 
+\definecolor{highlightcorrect}{RGB}{179, 255, 179} 
+\newcommand{\rr}[1]{\textbf{\color{green}[RR: #1]}}
+
+\usepackage[capitalize,noabbrev]{cleveref}
+
+\theoremstyle{plain}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{proposition}[theorem]{Proposition}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{assumption}[theorem]{Assumption}
+\theoremstyle{definition}
+\newtheorem{property}[theorem]{Property}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem{remark}[theorem]{Remark}
+
+\fancyfoot[L]{\footerfont Work in Progress}
+
+
+\newtcolorbox{solutionbox}{
+  colframe=black,
+  colback=gray!10,
+  boxrule=1pt,
+  arc=0pt,
+  title=,
+  fonttitle=\bfseries
+}
+\newenvironment{sol}
+  {\begin{solutionbox}}
+  {\end{solutionbox}}
+\newcommand{\BeginSol}{\begin{sol}}
+\newcommand{\EndSol}{\end{sol}}
+
+\newcommand{\zx}[1]{{\textcolor{red}{
+{\textcolor{blue}{\textbf{ZX}}}: #1}}}
+
+\usepackage[textsize=tiny]{todonotes}
+
+\usepackage{enumitem}
+\input{math_commands}
+
+\newcommand{\zhongwen}[1]{{\color{magenta} [Zhongwen: #1]}}
+\newcommand{\zihan}[1]{{\color{blue} [Zihan: #1]}}
+
+
+\definecolor{codegray}{gray}{0.9}
+\definecolor{codepurple}{rgb}{0.58,0,0.82}
+\definecolor{codeblue}{rgb}{0.25,0.5,0.5}
+
+\lstdefinelanguage{YAML}{
+  morekeywords={selector, sequence, condition, task, no},   %
+  keywordstyle=\color{codeblue}\bfseries,                %
+  ndkeywords={},                                        %
+  sensitive=false,                                       %
+  comment=[l]{\#},                                      %
+  morecomment=[s]{/*}{*/},                               %
+  commentstyle=\color{dkgreen}\ttfamily,               %
+  string=[b]",                                          %
+  stringstyle=\color{codepurple}\ttfamily,              %
+  morestring=[b]',                                         %
+  morestring=[b]`,                                         %
+  identifierstyle=\ttfamily,                             %
+  backgroundcolor=\color{codegray},                      %
+  basicstyle=\ttfamily\footnotesize,
+  breaklines=true,                                      %
+  captionpos=b,                                         %
+  frame=single,                                        %
+  numbers=left,                                        %
+  numberstyle=\tiny\color{gray},                        %
+  numbersep=5pt,
+  tabsize=2,                                           %
+  showspaces=false,                                      %
+  showstringspaces=false,                                %
+  showtabs=false,                                        %
+  xleftmargin=1em,
+}
+\title{Single-stream Policy Optimization}
+
+\author[1*]{Zhongwen Xu}
+\author[1*]{Zihan Ding}
+
+
+\affil[]{Tencent}
+\affil[*]{Equal contribution.}
+
+\correspondingauthor{zhongwenxu@tencent.com, dingzihan737@gmail.com}
+
+\hyphenation{pre-print}
+
+
+
+
+
+\begin{document}
+\maketitle
+\input{sections/abstract}
+
+
+
+
+
+\input{sections/introduction}
+\input{sections/related}
+\input{sections/method}
+\input{sections/experiments}
+\input{sections/conclusion}
+
+\bibliography{main}
+
+
+\newpage
+\appendix
+\onecolumn
+\input{sections/appendix}
+
+
+\end{document}

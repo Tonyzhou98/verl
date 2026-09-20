@@ -1,0 +1,29 @@
+{
+   "sources" : [
+      {
+         "usage" : "toplevel",
+         "filename" : "main.tex"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "algorithmic.sty"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "main.fdb_latexmk"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "main.fls"
+      },
+      {
+         "usage" : "ignore",
+         "filename" : "main.out"
+      }
+   ],
+   "spec_version" : 1,
+   "texlive_version" : "2025",
+   "process" : {
+      "compiler" : "pdflatex"
+   }
+}

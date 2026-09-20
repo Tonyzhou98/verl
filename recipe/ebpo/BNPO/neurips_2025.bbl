@@ -1,0 +1,109 @@
+\begin{thebibliography}{20}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Ahmadian et~al.(2024)Ahmadian, Cremer, Gall{\'e}, Fadaee, Kreutzer, Pietquin, {\"U}st{\"u}n, and Hooker]{ahmadian2024back}
+Arash Ahmadian, Chris Cremer, Matthias Gall{\'e}, Marzieh Fadaee, Julia Kreutzer, Olivier Pietquin, Ahmet {\"U}st{\"u}n, and Sara Hooker.
+\newblock Back to basics: Revisiting reinforce style optimization for learning from human feedback in llms.
+\newblock \emph{arXiv preprint arXiv:2402.14740}, 2024.
+
+\bibitem[{Art of Problem Solving}(2025{\natexlab{a}})]{aops_aime}
+{Art of Problem Solving}.
+\newblock Aime problems and solutions, 2025{\natexlab{a}}.
+\newblock URL \url{https://artofproblemsolving.com/wiki/index.php/AIME_Problems_and_Solutions}.
+\newblock Accessed: 2025-04-20.
+
+\bibitem[{Art of Problem Solving}(2025{\natexlab{b}})]{aops_amc}
+{Art of Problem Solving}.
+\newblock Amc problems and solutions, 2025{\natexlab{b}}.
+\newblock URL \url{https://artofproblemsolving.com/wiki/index.php?title=AMC_Problems_and_Solutions}.
+\newblock Accessed: 2025-04-20.
+
+\bibitem[Barto(2021)]{barto2021reinforcement}
+Andrew~G Barto.
+\newblock Reinforcement learning: An introduction. by richard’s sutton.
+\newblock \emph{SIAM Rev}, 6\penalty0 (2):\penalty0 423, 2021.
+
+\bibitem[Guo et~al.(2025)Guo, Yang, Zhang, Song, Zhang, Xu, Zhu, Ma, Wang, Bi, et~al.]{guo2025deepseek}
+Daya Guo, Dejian Yang, Haowei Zhang, Junxiao Song, Ruoyu Zhang, Runxin Xu, Qihao Zhu, Shirong Ma, Peiyi Wang, Xiao Bi, et~al.
+\newblock Deepseek-r1: Incentivizing reasoning capability in llms via reinforcement learning.
+\newblock \emph{arXiv preprint arXiv:2501.12948}, 2025.
+
+\bibitem[Hendrycks et~al.(2021)Hendrycks, Burns, Kadavath, Arora, Basart, Tang, Song, and Steinhardt]{hendrycks2021measuring}
+Dan Hendrycks, Collin Burns, Saurav Kadavath, Akul Arora, Steven Basart, Eric Tang, Dawn Song, and Jacob Steinhardt.
+\newblock Measuring mathematical problem solving with the math dataset.
+\newblock \emph{arXiv preprint arXiv:2103.03874}, 2021.
+
+\bibitem[Hu(2025)]{hu2025reinforce++}
+Jian Hu.
+\newblock Reinforce++: A simple and efficient approach for aligning large language models.
+\newblock \emph{arXiv preprint arXiv:2501.03262}, 2025.
+
+\bibitem[Kool et~al.(2019)Kool, van Hoof, and Welling]{kool2019buy}
+Wouter Kool, Herke van Hoof, and Max Welling.
+\newblock Buy 4 {REINFORCE} samples, get a baseline for free!, 2019.
+
+\bibitem[Li et~al.(2024)Li, Xu, Zhang, Lin, Yu, Sun, and Luo]{li2024remax}
+Ziniu Li, Tian Xu, Yushun Zhang, Zhihang Lin, Yang Yu, Ruoyu Sun, and Zhi-Quan Luo.
+\newblock Remax: a simple, effective, and efficient reinforcement learning method for aligning large language models.
+\newblock In \emph{Proceedings of the 41st International Conference on Machine Learning}, pages 29128--29163, 2024.
+
+\bibitem[Lightman et~al.(2023)Lightman, Kosaraju, Burda, Edwards, Baker, Lee, Leike, Schulman, Sutskever, and Cobbe]{lightman2023let}
+Hunter Lightman, Vineet Kosaraju, Yuri Burda, Harrison Edwards, Bowen Baker, Teddy Lee, Jan Leike, John Schulman, Ilya Sutskever, and Karl Cobbe.
+\newblock Let's verify step by step.
+\newblock In \emph{The Twelfth International Conference on Learning Representations}, 2023.
+
+\bibitem[Liu et~al.(2025)Liu, Chen, Li, Qi, Pang, Du, Lee, and Lin]{liu2025understanding}
+Zichen Liu, Changyu Chen, Wenjun Li, Penghui Qi, Tianyu Pang, Chao Du, Wee~Sun Lee, and Min Lin.
+\newblock Understanding r1-zero-like training: A critical perspective.
+\newblock \emph{arXiv preprint arXiv:2503.20783}, 2025.
+
+\bibitem[Ouyang et~al.(2022)Ouyang, Wu, Jiang, Almeida, Wainwright, Mishkin, Zhang, Agarwal, Slama, Ray, et~al.]{ouyang2022training}
+Long Ouyang, Jeffrey Wu, Xu~Jiang, Diogo Almeida, Carroll Wainwright, Pamela Mishkin, Chong Zhang, Sandhini Agarwal, Katarina Slama, Alex Ray, et~al.
+\newblock Training language models to follow instructions with human feedback.
+\newblock \emph{Advances in neural information processing systems}, 35:\penalty0 27730--27744, 2022.
+
+\bibitem[Schulman et~al.(2017)Schulman, Wolski, Dhariwal, Radford, and Klimov]{schulman2017proximal}
+John Schulman, Filip Wolski, Prafulla Dhariwal, Alec Radford, and Oleg Klimov.
+\newblock Proximal policy optimization algorithms.
+\newblock \emph{arXiv preprint arXiv:1707.06347}, 2017.
+
+\bibitem[Shao et~al.(2024)Shao, Wang, Zhu, Xu, Song, Bi, Zhang, Zhang, Li, Wu, et~al.]{shao2024deepseekmath}
+Zhihong Shao, Peiyi Wang, Qihao Zhu, Runxin Xu, Junxiao Song, Xiao Bi, Haowei Zhang, Mingchuan Zhang, YK~Li, Y~Wu, et~al.
+\newblock Deepseekmath: Pushing the limits of mathematical reasoning in open language models.
+\newblock \emph{arXiv preprint arXiv:2402.03300}, 2024.
+
+\bibitem[Sutton et~al.(1999)Sutton, McAllester, Singh, and Mansour]{sutton1999policy}
+Richard~S Sutton, David McAllester, Satinder Singh, and Yishay Mansour.
+\newblock Policy gradient methods for reinforcement learning with function approximation.
+\newblock \emph{Advances in neural information processing systems}, 12, 1999.
+
+\bibitem[Team et~al.(2025)Team, Du, Gao, Xing, Jiang, Chen, Li, Xiao, Du, Liao, et~al.]{team2025kimi}
+Kimi Team, Angang Du, Bofei Gao, Bowei Xing, Changjiu Jiang, Cheng Chen, Cheng Li, Chenjun Xiao, Chenzhuang Du, Chonghua Liao, et~al.
+\newblock Kimi k1. 5: Scaling reinforcement learning with llms.
+\newblock \emph{arXiv preprint arXiv:2501.12599}, 2025.
+
+\bibitem[Williams(1992)]{williams1992simple}
+Ronald~J Williams.
+\newblock Simple statistical gradient-following algorithms for connectionist reinforcement learning.
+\newblock \emph{Machine learning}, 8:\penalty0 229--256, 1992.
+
+\bibitem[Wu et~al.(2018)Wu, Rajeswaran, Duan, Kumar, Bayen, Kakade, Mordatch, and Abbeel]{wu2018variance}
+Cathy Wu, Aravind Rajeswaran, Yan Duan, Vikash Kumar, Alexandre~M Bayen, Sham Kakade, Igor Mordatch, and Pieter Abbeel.
+\newblock Variance reduction for policy gradient with action-dependent factorized baselines.
+\newblock \emph{arXiv preprint arXiv:1803.07246}, 2018.
+
+\bibitem[Yang et~al.(2024{\natexlab{a}})Yang, Yang, Zhang, Hui, Zheng, Yu, Li, Liu, Huang, Wei, et~al.]{yang2024qwen2}
+An~Yang, Baosong Yang, Beichen Zhang, Binyuan Hui, Bo~Zheng, Bowen Yu, Chengyuan Li, Dayiheng Liu, Fei Huang, Haoran Wei, et~al.
+\newblock Qwen2. 5 technical report.
+\newblock \emph{arXiv preprint arXiv:2412.15115}, 2024{\natexlab{a}}.
+
+\bibitem[Yang et~al.(2024{\natexlab{b}})Yang, Zhang, Hui, Gao, Yu, Li, Liu, Tu, Zhou, Lin, et~al.]{yang2024qwen2_math}
+An~Yang, Beichen Zhang, Binyuan Hui, Bofei Gao, Bowen Yu, Chengpeng Li, Dayiheng Liu, Jianhong Tu, Jingren Zhou, Junyang Lin, et~al.
+\newblock Qwen2. 5-math technical report: Toward mathematical expert model via self-improvement.
+\newblock \emph{arXiv preprint arXiv:2409.12122}, 2024{\natexlab{b}}.
+
+\end{thebibliography}

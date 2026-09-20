@@ -14,7 +14,7 @@ CKPT_PATH="$1"
 
 cd /home/zyhang/ebpo/verl
 
-srun --qos=h200_mrs_2_high --gres=gpu:1 --cpus-per-task=64 --mem=500G --time=4-00:00:00 python3 -m verl.model_merger merge \
+srun --qos=h200_mrs_1_high --gres=gpu:1 --cpus-per-task=64 --mem=500G --time=4-00:00:00 python3 -m verl.model_merger merge \
     --backend fsdp \
     --local_dir "${CKPT_PATH}/actor" \
     --target_dir "${CKPT_PATH}/actor/huggingface"
